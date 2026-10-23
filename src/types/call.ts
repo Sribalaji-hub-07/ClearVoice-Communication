@@ -39,6 +39,7 @@ export interface SignalIncomingCall {
 
 export interface SignalCallAccepted {
   callId: string;
+  callerId: string;
   receiverId: string;
   receiverName: string;
 }

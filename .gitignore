@@ -34,4 +34,9 @@ android/local.properties
 mingit
 mingit.zip
 
+# Local env — never commit real secrets
+.env
+.env.local
+.env.*.local
+
 *.apk

@@ -106,11 +106,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('call-rejected', (data: { callId: string; callerId: string; receiverId: string; reason?: string }) => {
+  socket.on('call-rejected', (data: { callId: string; callerId?: string; receiverId: string; reason?: string }) => {
     console.log(`[SIGNAL] call-rejected: Call ${data.callId} rejected by ${data.receiverId}`);
-    const callerSocketId = findSocketIdByUserId(data.callerId);
-    if (callerSocketId) {
-      io.to(callerSocketId).emit('call-rejected', data);
+    // callerId may not be in payload; look it up from activeCalls
+    const callRecord = activeCalls.get(data.callId);
+    const callerId = data.callerId || callRecord?.callerId;
+    if (callerId) {
+      const callerSocketId = findSocketIdByUserId(callerId);
+      if (callerSocketId) {
+        io.to(callerSocketId).emit('call-rejected', data);
+      }
     }
     activeCalls.delete(data.callId);
   });

@@ -533,13 +533,12 @@ export default function App() {
         <InCallView
           role={call.callInfo?.callerId === currentUser?.id ? 'caller' : 'receiver'}
           state={call.callState}
-          roomCode={null}
+          callInfo={call.callInfo}
           connectionQuality={call.connectionQuality}
+          callStats={call.callStats}
           isMuted={call.isMuted}
-          isBoosted={false}
           suppression={suppression}
           onToggleMute={call.toggleMute}
-          onToggleBoost={() => {}}
           onSuppressionChange={handleSuppressionChange}
           onHangup={call.endCall}
         />

@@ -14,6 +14,7 @@ import type {
 
 let socket: Socket | null = null;
 let onlineUsersCache: OnlineUser[] = [];
+let iceServersCache: any[] | undefined = undefined;
 type OnlineUsersUpdateHandler = (users: OnlineUser[]) => void;
 let onlineUsersListeners: OnlineUsersUpdateHandler[] = [];
 
@@ -61,6 +62,14 @@ export const connectSocket = (userId: string, userName: string): Socket => {
     notifyOnlineUsersUpdate();
   });
 
+  socket.on('ice-servers', (servers: any[]) => {
+    console.log('[SIGNAL] Received ICE servers', servers);
+    iceServersCache = servers;
+  });
+
+  // Request ICE servers immediately upon connection
+  socket.emit('get-ice-servers');
+
   socket.on('user-online', (user: OnlineUser) => {
     console.log('[SIGNAL] User online:', user);
     if (!onlineUsersCache.find((u) => u.userId === user.userId)) {
@@ -88,6 +97,10 @@ export const disconnectSocket = (): void => {
 
 export const getOnlineUsers = (): OnlineUser[] => {
   return onlineUsersCache;
+};
+
+export const getIceServers = (): any[] | undefined => {
+  return iceServersCache;
 };
 
 export const isUserOnline = (userId: string): boolean => {
@@ -195,25 +208,25 @@ export const emitCallRejected = (data: SignalCallRejected): void => {
   socket.emit('call-rejected', data);
 };
 
-export const emitOffer = (data: SignalOffer & { targetUserId: string }): void => {
+export const emitOffer = (data: SignalOffer & { targetId: string }): void => {
   if (!socket) return;
   console.log('[SIGNAL] emit offer', data);
   socket.emit('offer', data);
 };
 
-export const emitAnswer = (data: SignalAnswer & { targetUserId: string }): void => {
+export const emitAnswer = (data: SignalAnswer & { targetId: string }): void => {
   if (!socket) return;
   console.log('[SIGNAL] emit answer', data);
   socket.emit('answer', data);
 };
 
-export const emitIceCandidate = (data: SignalIceCandidate & { targetUserId: string }): void => {
+export const emitIceCandidate = (data: SignalIceCandidate & { targetId: string }): void => {
   if (!socket) return;
   console.log('[SIGNAL] emit ice-candidate', data);
   socket.emit('ice-candidate', data);
 };
 
-export const emitEndCall = (data: SignalEndCall): void => {
+export const emitEndCall = (data: SignalEndCall & { targetId: string }): void => {
   if (!socket) return;
   console.log('[SIGNAL] emit end-call', data);
   socket.emit('end-call', data);
