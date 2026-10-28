@@ -36,8 +36,8 @@ export const connectSocket = (userId: string, userName: string): Socket => {
   }
 
   const isProd = import.meta.env.PROD;
-  // Fallback to origin if in production so it connects to the Railway host
-  const url = import.meta.env.VITE_SIGNALING_URL || (isProd ? window.location.origin : 'http://localhost:3001');
+  // Fallback to hostname:3001 in dev so LAN devices (phones) connect to the host PC's server
+  const url = import.meta.env.VITE_SIGNALING_URL || (isProd ? window.location.origin : `http://${window.location.hostname}:3001`);
   console.log(`[SIGNAL] Connecting to signaling server at ${url}`);
 
   socket = io(url, {
