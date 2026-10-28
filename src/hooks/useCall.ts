@@ -163,6 +163,10 @@ export function useCall(userId: string, userName: string): UseCallResult {
       handleCleanup(data.reason === 'user-disconnected' ? 'Other party disconnected' : undefined);
     });
 
+    socketService.onCallError((data) => {
+      handleCleanup(data.message || 'Receiver is currently offline');
+    });
+
     return () => {
       socketService.removeAllCallListeners();
     };

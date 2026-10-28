@@ -40,12 +40,15 @@ export const connectSocket = (userId: string, userName: string): Socket => {
   const url = import.meta.env.VITE_SIGNALING_URL || (isProd ? window.location.origin : `http://${window.location.hostname}:3001`);
   console.log(`[SIGNAL] Connecting to signaling server at ${url}`);
 
+  const cleanUserId = String(userId).trim().replace(/^#/, '');
+
   socket = io(url, {
-    auth: { userId, userName },
+    auth: { userId: cleanUserId, userName },
   });
 
   socket.on('connect', () => {
     console.log('[SIGNAL] Socket connected:', socket?.id);
+    socket?.emit('get-online-users');
   });
 
   socket.on('disconnect', () => {
@@ -78,13 +81,29 @@ export const connectSocket = (userId: string, userName: string): Socket => {
     }
   });
 
-  socket.on('user-offline', (userId: string) => {
-    console.log('[SIGNAL] User offline:', userId);
-    onlineUsersCache = onlineUsersCache.filter((u) => u.userId !== userId);
+  socket.on('user-offline', (data: string | { userId: string }) => {
+    const offlineId = typeof data === 'string' ? data : data?.userId;
+    console.log('[SIGNAL] User offline:', offlineId);
+    onlineUsersCache = onlineUsersCache.filter((u) => u.userId !== offlineId);
     notifyOnlineUsersUpdate();
   });
 
   return socket;
+};
+
+export const requestOnlineUsers = (): void => {
+  if (socket && socket.connected) {
+    socket.emit('get-online-users');
+  }
+};
+
+export const onCallError = (handler: (data: { message: string }) => void): void => {
+  if (!socket) return;
+  socket.off('call-error');
+  socket.on('call-error', (data: { message: string }) => {
+    console.log('[SIGNAL] call-error', data);
+    handler(data);
+  });
 };
 
 export const disconnectSocket = (): void => {

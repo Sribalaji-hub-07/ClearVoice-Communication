@@ -9,7 +9,7 @@ import {
   type CallRecord,
 } from '../utils/callHistory';
 import type { UserProfile, ContactInfo } from '../utils/userAuth';
-import { getOnlineUsers, onOnlineUsersUpdate } from '../services/socket';
+import { getOnlineUsers, onOnlineUsersUpdate, requestOnlineUsers } from '../services/socket';
 import type { OnlineUser } from '../types/call';
 
 interface Props {
@@ -48,6 +48,7 @@ export default function CallsTab({
 
   useEffect(() => {
     setOnlineUsers(getOnlineUsers());
+    requestOnlineUsers();
     
     // Subscribe to online users updates
     const handleUpdate = (users: OnlineUser[]) => {
@@ -55,9 +56,13 @@ export default function CallsTab({
     };
     
     onOnlineUsersUpdate(handleUpdate);
-    
-    // In a real app we might need to remove the listener, but onOnlineUsersUpdate 
-    // doesn't return a cleanup function in our simple implementation.
+
+    // Periodically sync online users
+    const interval = setInterval(() => {
+      requestOnlineUsers();
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleDeleteItem = (e: React.MouseEvent, id: string) => {
@@ -74,26 +79,26 @@ export default function CallsTab({
   };
 
   const handleQuickRejoin = (contactId: string) => {
-    const isOnline = onlineUsers.some(u => u.userId === contactId);
-    if (!isOnline) {
-      alert(`User ${contactId} is currently offline.`);
-      return;
-    }
-    const user = onlineUsers.find(u => u.userId === contactId);
-    onStartCall(contactId, user?.userName || `User ${contactId}`);
+    const cleanId = contactId.replace(/^#/, '').trim();
+    const user = onlineUsers.find(u => u.userId === cleanId || u.userId === contactId);
+    onStartCall(cleanId, user?.userName || `User #${cleanId}`);
   };
 
   const handleManualCall = () => {
-    if (!manualUserId.trim()) return;
-    const isOnline = onlineUsers.some(u => u.userId === manualUserId.trim());
-    if (!isOnline) {
-      alert(`User ${manualUserId} is currently offline.`);
-      return;
-    }
-    const user = onlineUsers.find(u => u.userId === manualUserId.trim());
+    const input = manualUserId.trim();
+    if (!input) return;
+    const cleanId = input.replace(/^#/, '').trim();
+    const matched = onlineUsers.find(
+      u => u.userId === cleanId || 
+           u.userId === input || 
+           u.userName.toLowerCase() === input.toLowerCase()
+    );
+    const targetId = matched ? matched.userId : cleanId;
+    const targetName = matched ? matched.userName : `User #${cleanId}`;
+
     setShowModal(false);
-    onStartCall(manualUserId.trim(), user?.userName || `User ${manualUserId.trim()}`);
     setManualUserId('');
+    onStartCall(targetId, targetName);
   };
 
   // Filter out the current user from online list
@@ -335,15 +340,18 @@ export default function CallsTab({
             </div>
             <div className="modal-body">
               <p className="modal-desc">
-                Enter the exact User ID of the contact you want to call. They must be online.
+                Enter the PIN / User ID of the contact you want to call.
               </p>
+              <div style={{ fontSize: '13px', color: '#94a3b8', margin: '6px 0 12px 0' }}>
+                Your PIN is: <strong style={{ color: '#00F576', fontSize: '15px' }}>#{currentUser.id}</strong>
+              </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '20px 0' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '14px 0' }}>
                 <input
                   type="text"
                   value={manualUserId}
                   onChange={(e) => setManualUserId(e.target.value)}
-                  placeholder="Enter User ID (e.g. u1234)"
+                  placeholder="Enter PIN (e.g. 1042 or #1042)"
                   style={{
                     padding: '12px',
                     fontSize: '16px',
