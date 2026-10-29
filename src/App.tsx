@@ -3,16 +3,12 @@ import { AudioEngine } from './audio/audioEngine';
 import { AudioRecorder, type RecordingResult } from './audio/recorder';
 import type { LevelReport, MicPermissionState, MonitorMode, ProcessingState } from './audio/types';
 
-import StatusPanel from './components/StatusPanel';
-import Controls from './components/Controls';
-import LevelMeters from './components/LevelMeters';
-import VisualizerGrid from './components/VisualizerGrid';
-import ComparisonPanel from './components/ComparisonPanel';
-import RecordingPanel from './components/RecordingPanel';
 import InCallView from './components/InCallView';
 import BottomNavBar, { type TabType } from './components/BottomNavBar';
 import ChatsTab from './components/ChatsTab';
 import CallsTab from './components/CallsTab';
+import DirectoryTab from './components/DirectoryTab';
+import DashboardView from './components/DashboardView';
 import ProfileTab from './components/ProfileTab';
 import AuthLanding from './components/AuthLanding';
 import SignUpPage from './components/SignUpPage';
@@ -21,13 +17,10 @@ import ContactProfileModal from './components/ContactProfileModal';
 import SplashScreen from './components/SplashScreen';
 import IncomingCall from './components/IncomingCall';
 import MicPermissionModal from './components/MicPermissionModal';
-import Sidebar, { type DashboardTab } from './components/Sidebar';
-import DashboardView from './components/DashboardView';
 import type { OnlineUser } from './types/call';
 
 import { getCurrentUser, logoutUser, type UserProfile, type ContactInfo } from './utils/userAuth';
 import { getSettings, type AppSettings } from './utils/settingsStorage';
-import { setDemoToastCallback } from './utils/otpService';
 import { ChatPeerManager, type P2PMessage } from './p2p/chatPeer';
 import { saveMessage, saveChatThread, getChatThreads } from './utils/chatStorage';
 
@@ -39,7 +32,7 @@ type AuthView = 'landing' | 'signup' | 'login';
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentUser());
   const [authView, setAuthView] = useState<AuthView>('landing');
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabType>('chats');
   const [activeChatContact, setActiveChatContact] = useState<ContactInfo | null>(null);
   const [viewingContact, setViewingContact] = useState<ContactInfo | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
@@ -66,79 +59,58 @@ export default function App() {
 
   // Socket.IO Connection
   useEffect(() => {
-    if (currentUser?.id && currentUser?.name) {
-      socketService.connectSocket(currentUser.id, currentUser.name);
+    const userIdentifier = currentUser?.username || currentUser?.id;
+    if (userIdentifier && currentUser?.name) {
+      socketService.connectSocket(userIdentifier, currentUser.name);
     }
     return () => {
       socketService.disconnectSocket();
     };
-  }, [currentUser?.id, currentUser?.name]);
+  }, [currentUser?.username, currentUser?.id, currentUser?.name]);
 
-  const call = useCall(currentUser?.id || '', currentUser?.name || '');
+  const call = useCall(currentUser?.username || currentUser?.id || '', currentUser?.name || '');
 
-  // Demo toast for OTP display
-  const [demoToast, setDemoToast] = useState<string | null>(null);
-  const showDemoToast = useCallback((msg: string) => {
-    setDemoToast(msg);
-    setTimeout(() => setDemoToast(null), 8000);
-  }, []);
-
-  // Register demo toast callback for OTP service
-  useEffect(() => {
-    setDemoToastCallback(showDemoToast);
-  }, [showDemoToast]);
-
-  // ============================================================
-  // P2P CHAT — use STATE (not ref) so re-renders propagate to ChatsTab
-  // ============================================================
+  // P2P Chat State
   const [chatPeer, setChatPeer] = useState<ChatPeerManager | null>(null);
   const [onlinePeers, setOnlinePeers] = useState<Set<string>>(new Set());
-  const [isP2PConnected, setIsP2PConnected] = useState(false);
-  // Increment this whenever a P2P message arrives so ChatsTab refreshes
+  const [, setIsP2PConnected] = useState(false);
   const [p2pMsgTrigger, setP2pMsgTrigger] = useState(0);
 
-  // Use a ref for the incoming-message handler so the ChatPeerManager's
-  // callback always calls the latest closure without needing to tear down
-  // and reconnect the peer when currentUser changes.
   const incomingMsgHandlerRef = useRef<(msg: P2PMessage) => void>(() => {});
   const activeChatContactRef = useRef<ContactInfo | null>(null);
 
-  // Keep refs in sync
   useEffect(() => {
     activeChatContactRef.current = activeChatContact;
   }, [activeChatContact]);
 
   useEffect(() => {
     incomingMsgHandlerRef.current = (msg: P2PMessage) => {
-      if (msg.type === 'chat' && msg.text) {
-        // Save to localStorage
+      if (currentUser) {
         saveMessage(msg.senderId, {
           senderId: msg.senderId,
-          receiverId: currentUser?.id || '',
-          text: msg.text,
-          timestamp: msg.timestamp,
+          receiverId: currentUser.username || currentUser.id || '',
+          text: msg.text || '',
+          timestamp: msg.timestamp || Date.now(),
           status: 'delivered',
         });
 
-        // Ensure a chat thread exists for this contact
         const threads = getChatThreads();
         const existing = threads.find((t) => t.contactId === msg.senderId);
         if (!existing) {
           saveChatThread({
             contactId: msg.senderId,
-            contactName: msg.senderName || `User #${msg.senderId}`,
-            contactEmail: `${msg.senderId}@clearvoice.app`,
+            contactName: msg.senderName || `@${msg.senderId}`,
             contactStatus: 'ClearVoice Peer',
-            avatarColor: '#00F576',
-            lastMessage: msg.text,
-            lastTimestamp: msg.timestamp,
+            avatarColor: '#00a884',
+            lastMessage: msg.text || '',
+            lastTimestamp: msg.timestamp || Date.now(),
             unreadCount: 1,
           });
         } else {
           saveChatThread({
             ...existing,
-            lastMessage: msg.text,
-            lastTimestamp: msg.timestamp,
+            lastMessage: msg.text || '',
+            lastTimestamp: msg.timestamp || Date.now(),
             unreadCount:
               activeChatContactRef.current?.id === msg.senderId
                 ? 0
@@ -146,21 +118,20 @@ export default function App() {
           });
         }
 
-        // Trigger ChatsTab refresh
         setP2pMsgTrigger((prev) => prev + 1);
       }
     };
-  }, [currentUser?.id]);
+  }, [currentUser?.username, currentUser?.id]);
 
-  // Create and connect the ChatPeerManager when user is logged in
   useEffect(() => {
-    if (!currentUser) {
+    const userId = currentUser?.username || currentUser?.id;
+    if (!userId || !currentUser) {
       setChatPeer(null);
       setIsP2PConnected(false);
       return;
     }
 
-    const peer = new ChatPeerManager(currentUser.id, currentUser.name, {
+    const peer = new ChatPeerManager(userId, currentUser.name, {
       onMessage: (msg) => incomingMsgHandlerRef.current(msg),
       onPeerOnline: (peerId) => {
         setOnlinePeers((prev) => new Set(prev).add(peerId));
@@ -180,74 +151,49 @@ export default function App() {
       },
     });
 
-    setChatPeer(peer); // Set as STATE so ChatsTab gets it on re-render
     peer.connect().catch((err) => {
-      console.error('Failed to connect ChatPeerManager:', err);
+      console.warn('ChatPeer connect error:', err);
     });
+
+    setChatPeer(peer);
 
     return () => {
       peer.disconnect();
-      setChatPeer(null);
-      setIsP2PConnected(false);
     };
-    // Only re-create when user ID changes, not on every currentUser object change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.id]);
+  }, [currentUser?.username, currentUser?.id, currentUser?.name]);
 
-  // Audio engine refs
-  const engineRef = useRef<AudioEngine | null>(null);
-  const recorderRef = useRef<AudioRecorder>(new AudioRecorder());
-
+  // Audio Engine State
+  const [isRunning, setIsRunning] = useState(false);
   const [micPermission, setMicPermission] = useState<MicPermissionState>('idle');
-  const [processingState, setProcessingState] = useState<ProcessingState>('stopped');
   const [error, setError] = useState<string | null>(null);
   const [levels, setLevels] = useState<LevelReport | null>(null);
-  const [monitorMode, setMonitorMode] = useState<MonitorMode>('none');
-  const [sampleRate, setSampleRate] = useState<number | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordings, setRecordings] = useState<RecordingResult[]>([]);
   const [analysers, setAnalysers] = useState<{
     original: AnalyserNode | null;
     enhanced: AnalyserNode | null;
   }>({ original: null, enhanced: null });
+  const [monitorMode, setMonitorMode] = useState<MonitorMode>('none');
+  const [isRecording, setIsRecording] = useState(false);
+  const [, setRecordings] = useState<RecordingResult[]>([]);
 
-  const isRunning = processingState === 'running';
-  const isStarting = processingState === 'starting';
+  const engineRef = useRef<AudioEngine | null>(null);
+  const recorderRef = useRef<AudioRecorder>(new AudioRecorder());
   const isCallActive = call.callState !== 'idle';
 
-  const latencyMs = sampleRate ? (1024 / sampleRate) * 1000 : null;
-
-  // --- Audio Engine ---
-
-  useEffect(() => {
-    return () => {
-      engineRef.current?.stop();
-    };
-  }, []);
-
   const handleStart = useCallback(async (): Promise<boolean> => {
-    setError(null);
     setMicPermission('requesting');
-
-    const engine = new AudioEngine({
-      onLevels: (l) => setLevels(l),
-      onError: (message) => {
-        setError(message);
-        setMicPermission((prev) => (prev === 'requesting' ? 'denied' : prev));
-      },
-      onStateChange: (state) => setProcessingState(state),
-    });
+    setError(null);
+    const engine = new AudioEngine();
     engineRef.current = engine;
 
     const ok = await engine.start();
     if (ok) {
       setMicPermission('granted');
-      setSampleRate(engine.context?.sampleRate ?? null);
+      setIsRunning(true);
       setAnalysers(engine.analysers);
       engine.setSuppressionAmount(suppression);
       engine.setMonitorMode(monitorMode);
     } else {
-      setSampleRate(null);
+      setIsRunning(false);
       setAnalysers({ original: null, enhanced: null });
     }
     return ok;
@@ -268,8 +214,8 @@ export default function App() {
     }
     engineRef.current?.stop();
     engineRef.current = null;
+    setIsRunning(false);
     setAnalysers({ original: null, enhanced: null });
-    setSampleRate(null);
     setLevels(null);
   }, [isRecording, isCallActive, call]);
 
@@ -285,45 +231,17 @@ export default function App() {
     engineRef.current?.setSuppressionAmount(value);
   }, []);
 
-  const handleMonitorChange = useCallback((mode: MonitorMode) => {
-    setMonitorMode(mode);
-    engineRef.current?.setMonitorMode(mode);
-  }, []);
-
-  const handleResetNoiseProfile = useCallback(() => {
-    engineRef.current?.resetNoiseProfile();
-  }, []);
-
-  const handleStartRecording = useCallback(() => {
-    const stream = engineRef.current?.recordingStream;
-    if (!stream) return;
-    const started = recorderRef.current.start(stream);
-    if (started) setIsRecording(true);
-    else setError('Recording is not supported in this browser.');
-  }, []);
-
-  const handleStopRecording = useCallback(async () => {
-    const result = await recorderRef.current.stop();
-    setIsRecording(false);
-    if (result) setRecordings((prev) => [result, ...prev]);
-  }, []);
-
-  // --- Call Management ---
-
   const getAudioStreamForCall = async (): Promise<MediaStream | null> => {
-    // 1. Try to start the enhanced AudioEngine stream
     try {
       const ready = await ensureProcessingRunning();
       if (ready && engineRef.current?.callStream) {
         return engineRef.current.callStream;
       }
     } catch (e) {
-      console.warn('[AUDIO] AudioEngine could not be initialized, falling back to direct microphone stream:', e);
+      console.warn('[AUDIO] AudioEngine could not be initialized, using fallback mic:', e);
     }
 
-    // 2. Direct fallback microphone stream with standard WebRTC DSP
     try {
-      console.log('[AUDIO] Requesting direct microphone stream fallback...');
       const fallbackStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -334,25 +252,23 @@ export default function App() {
       setMicPermission('granted');
       return fallbackStream;
     } catch (err) {
-      console.error('[AUDIO] Direct microphone access failed:', err);
+      console.error('[AUDIO] Direct mic access failed:', err);
       setMicPermission('denied');
-      setError('Microphone permission is required to make or receive calls.');
+      setError('Microphone permission is required to place or accept calls.');
       return null;
     }
   };
 
   const handleStartCall = async (receiverId: string, receiverName: string) => {
-    setActiveTab('calls');
     const stream = await getAudioStreamForCall();
     if (!stream) {
-      alert('Microphone access is required to place calls. Please allow microphone permissions in your browser.');
+      alert('Microphone access is required to place calls. Please allow microphone permissions.');
       return;
     }
     call.startCall(receiverId, receiverName, stream);
   };
 
   const handleAcceptCall = async () => {
-    setActiveTab('calls');
     const stream = await getAudioStreamForCall();
     if (!stream) {
       alert('Microphone access is required to accept this call.');
@@ -380,17 +296,15 @@ export default function App() {
 
   const handleAuthSuccess = (user: UserProfile) => {
     setCurrentUser(user);
+    setActiveTab('chats');
   };
 
   return (
-    <div className="app-container">
-      {/* Demo OTP Toast */}
-      {demoToast && <div className="demo-otp-toast">{demoToast}</div>}
-
+    <div className="app-container-dark">
       {/* Splash Screen */}
       <SplashScreen />
 
-      {/* Auth Screens (if user is not signed in) */}
+      {/* Auth Screens */}
       {!currentUser && authView === 'landing' && (
         <AuthLanding
           onGoToSignUp={() => setAuthView('signup')}
@@ -401,48 +315,35 @@ export default function App() {
         <SignUpPage
           onSuccess={handleAuthSuccess}
           onGoToLogin={() => setAuthView('login')}
-          demoToast={showDemoToast}
         />
       )}
       {!currentUser && authView === 'login' && (
         <LoginPage
           onSuccess={handleAuthSuccess}
           onGoToSignUp={() => setAuthView('signup')}
-          demoToast={showDemoToast}
         />
       )}
 
-      {/* ── Main Telecom / TowerWatch Executive Layout ── */}
+      {/* ── Main Fullscreen Content Layout (No Wide Sidebar) ── */}
       {currentUser && (
-        <div className="telemetry-layout">
-          <Sidebar
-            currentUser={currentUser}
-            activeTab={activeTab as DashboardTab}
-            onSelectTab={(tab) => setActiveTab(tab)}
-            onlineCount={onlineUsers.filter((u) => u.userId !== currentUser.id).length}
-          />
-
-          {activeTab === 'dashboard' && (
-            <DashboardView
-              currentUser={currentUser}
-              levels={levels}
-              analysers={analysers}
-              isAudioRunning={isRunning}
-              suppression={suppression}
-              onSuppressionChange={handleSuppressionChange}
-              onlineUsers={onlineUsers}
-              callState={call.callState}
-              callStats={call.callStats}
-              onStartCall={handleStartCall}
-              onHangup={call.endCall}
-              onViewContactProfile={setViewingContact}
-              onStartAudio={handleStart}
-              onStopAudio={handleStop}
-            />
+        <div className="app-main-layout">
+          {activeTab === 'chats' && (
+            <main className="tab-fullscreen-pane">
+              <ChatsTab
+                currentUser={currentUser}
+                activeContact={activeChatContact}
+                onSelectContact={setActiveChatContact}
+                onViewContactProfile={setViewingContact}
+                onStartCall={handleStartCall}
+                chatPeer={chatPeer}
+                onlinePeers={onlinePeers}
+                p2pMsgTrigger={p2pMsgTrigger}
+              />
+            </main>
           )}
 
           {activeTab === 'calls' && (
-            <main className="telemetry-main" style={{ padding: '24px' }}>
+            <main className="tab-fullscreen-pane">
               <CallsTab
                 currentUser={currentUser}
                 canCall={micPermission !== 'denied'}
@@ -457,23 +358,40 @@ export default function App() {
             </main>
           )}
 
-          {activeTab === 'chats' && (
-            <main className="telemetry-main" style={{ padding: '24px' }}>
-              <ChatsTab
+          {activeTab === 'directory' && (
+            <main className="tab-fullscreen-pane">
+              <DirectoryTab
                 currentUser={currentUser}
-                activeContact={activeChatContact}
-                onSelectContact={setActiveChatContact}
-                onViewContactProfile={setViewingContact}
+                onlineUsers={onlineUsers}
                 onStartCall={handleStartCall}
-                chatPeer={chatPeer}
-                onlinePeers={onlinePeers}
-                p2pMsgTrigger={p2pMsgTrigger}
+                onStartChat={handleStartChatWithContact}
+              />
+            </main>
+          )}
+
+          {activeTab === 'dashboard' && (
+            <main className="tab-fullscreen-pane">
+              <DashboardView
+                currentUser={currentUser}
+                levels={levels}
+                analysers={analysers}
+                isAudioRunning={isRunning}
+                suppression={suppression}
+                onSuppressionChange={handleSuppressionChange}
+                onlineUsers={onlineUsers}
+                callState={call.callState}
+                callStats={call.callStats}
+                onStartCall={handleStartCall}
+                onHangup={call.endCall}
+                onViewContactProfile={setViewingContact}
+                onStartAudio={handleStart}
+                onStopAudio={handleStop}
               />
             </main>
           )}
 
           {activeTab === 'profile' && (
-            <main className="telemetry-main" style={{ padding: '24px' }}>
+            <main className="tab-fullscreen-pane">
               <ProfileTab
                 currentUser={currentUser}
                 settings={settings}
@@ -485,63 +403,6 @@ export default function App() {
               />
             </main>
           )}
-
-          {activeTab === 'lab' && (
-            <main className="telemetry-main" style={{ padding: '24px' }}>
-              <div className="tab-pane lab-tab">
-                <div className="lab-header-banner">
-                  <span className="pill">CLEARVOICE DSP LABORATORY</span>
-                  <h2>REAL-TIME SPECTRAL SUBTRACTION</h2>
-                  <p>
-                    Inspect real-time FFT spectrograms, waveforms, noise estimators, and audio
-                    comparison monitors running inside the dedicated AudioWorklet.
-                  </p>
-                </div>
-
-                <div className="dashboard-grid">
-                  <div>
-                    <StatusPanel
-                      micPermission={micPermission}
-                      processingState={processingState}
-                      error={error}
-                      sampleRate={sampleRate}
-                      latencyMs={latencyMs}
-                    />
-                    <Controls
-                      isRunning={isRunning}
-                      isStarting={isStarting}
-                      suppression={suppression}
-                      onStart={handleStart}
-                      onStop={handleStop}
-                      onSuppressionChange={handleSuppressionChange}
-                      onResetNoiseProfile={handleResetNoiseProfile}
-                    />
-                    <LevelMeters levels={levels} suppression={suppression} />
-                  </div>
-
-                  <div>
-                    <VisualizerGrid
-                      originalAnalyser={analysers.original}
-                      enhancedAnalyser={analysers.enhanced}
-                      active={isRunning}
-                    />
-                    <ComparisonPanel
-                      mode={monitorMode}
-                      onChange={handleMonitorChange}
-                      disabled={!isRunning}
-                    />
-                    <RecordingPanel
-                      isRecording={isRecording}
-                      canRecord={isRunning}
-                      onStart={handleStartRecording}
-                      onStop={handleStopRecording}
-                      recordings={recordings}
-                    />
-                  </div>
-                </div>
-              </div>
-            </main>
-          )}
         </div>
       )}
 
@@ -549,12 +410,8 @@ export default function App() {
       {currentUser && (
         <BottomNavBar
           activeTab={activeTab}
-          onChangeTab={(t) => {
-            if (activeTab === 'chats' && activeChatContact && t !== 'chats') {
-              setActiveChatContact(null);
-            }
-            setActiveTab(t);
-          }}
+          onChangeTab={setActiveTab}
+          unreadCount={0}
           isAudioRunning={isRunning}
           isCallActive={isCallActive}
         />
@@ -566,7 +423,7 @@ export default function App() {
           contact={viewingContact}
           onClose={() => setViewingContact(null)}
           onStartChat={handleStartChatWithContact}
-          onStartCall={(id: string, name?: string) => handleStartCall(id, name ?? `User #${id}`)}
+          onStartCall={(id: string, name?: string) => handleStartCall(id, name ?? `@${id}`)}
         />
       )}
 
@@ -579,10 +436,10 @@ export default function App() {
         />
       )}
 
-      {/* Full-Screen In-Call View */}
+      {/* In-Call View */}
       {call.callState !== 'idle' && call.callState !== 'ringing' && (
         <InCallView
-          role={call.callInfo?.callerId === currentUser?.id ? 'caller' : 'receiver'}
+          role={call.callInfo?.callerId === (currentUser?.username || currentUser?.id) ? 'caller' : 'receiver'}
           state={call.callState}
           callInfo={call.callInfo}
           connectionQuality={call.connectionQuality}
@@ -595,9 +452,9 @@ export default function App() {
         />
       )}
 
-      {/* Mic Permission Glassmorphism Modal */}
+      {/* Mic Permission Modal */}
       {(micPermission === 'requesting' || micPermission === 'denied') && !isRunning && (
-        <MicPermissionModal 
+        <MicPermissionModal
           permissionState={micPermission}
           error={micPermission === 'denied' ? error : null}
           onGrant={handleStart}

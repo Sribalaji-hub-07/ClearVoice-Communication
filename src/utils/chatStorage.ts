@@ -11,7 +11,7 @@ export interface ChatMessage {
 export interface ChatThread {
   contactId: string;
   contactName: string;
-  contactEmail: string;
+  contactEmail?: string;
   contactStatus?: string;
   avatarColor: string;
   lastMessage: string;

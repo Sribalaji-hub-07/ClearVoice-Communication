@@ -18,6 +18,16 @@ let iceServersCache: any[] | undefined = undefined;
 type OnlineUsersUpdateHandler = (users: OnlineUser[]) => void;
 let onlineUsersListeners: OnlineUsersUpdateHandler[] = [];
 
+export interface SocketChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  receiverId: string;
+  text: string;
+  timestamp: number;
+}
+let chatMessageListeners: ((msg: SocketChatMessage) => void)[] = [];
+
 const notifyOnlineUsersUpdate = () => {
   onlineUsersListeners.forEach((handler) => handler(onlineUsersCache));
 };
@@ -141,7 +151,31 @@ export const connectSocket = (userId: string, userName: string): Socket => {
     notifyOnlineUsersUpdate();
   });
 
+  socket.on('receive-chat-message', (msg: SocketChatMessage) => {
+    console.log('[SIGNAL] Received chat message from', msg.senderId);
+    chatMessageListeners.forEach((fn) => {
+      try {
+        fn(msg);
+      } catch (err) {
+        console.error('Error in chat message listener:', err);
+      }
+    });
+  });
+
   return socket;
+};
+
+export const onReceiveChatMessage = (listener: (msg: SocketChatMessage) => void): (() => void) => {
+  chatMessageListeners.push(listener);
+  return () => {
+    chatMessageListeners = chatMessageListeners.filter((l) => l !== listener);
+  };
+};
+
+export const emitSendChatMessage = (msg: SocketChatMessage): void => {
+  if (!socket) return;
+  console.log('[SIGNAL] Emitting send-chat-message to', msg.receiverId);
+  socket.emit('send-chat-message', msg);
 };
 
 export const requestOnlineUsers = (): void => {

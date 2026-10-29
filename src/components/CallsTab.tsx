@@ -340,26 +340,27 @@ export default function CallsTab({
             </div>
             <div className="modal-body">
               <p className="modal-desc">
-                Enter the PIN / User ID of the contact you want to call.
+                Enter the username of the user you want to call.
               </p>
               <div style={{ fontSize: '13px', color: '#94a3b8', margin: '6px 0 12px 0' }}>
-                Your PIN is: <strong style={{ color: '#00F576', fontSize: '15px' }}>#{currentUser.id}</strong>
+                Your username is: <strong style={{ color: '#00a884', fontSize: '15px' }}>@{currentUser.username || currentUser.id}</strong>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '14px 0' }}>
                 <input
                   type="text"
                   value={manualUserId}
-                  onChange={(e) => setManualUserId(e.target.value)}
-                  placeholder="Enter PIN (e.g. 1042 or #1042)"
+                  onChange={(e) => setManualUserId(e.target.value.toLowerCase())}
+                  placeholder="Enter username (e.g. sribalaji)"
                   style={{
                     padding: '12px',
                     fontSize: '16px',
-                    border: '2px solid #000',
+                    border: '1px solid #202c33',
                     borderRadius: '8px',
-                    boxShadow: '3px 3px 0px #000',
+                    backgroundColor: '#111b21',
+                    color: '#e9edef',
                     outline: 'none',
-                    fontFamily: 'var(--mono)'
+                    fontFamily: 'monospace'
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleManualCall();

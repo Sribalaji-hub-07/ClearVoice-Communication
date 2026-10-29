@@ -1,4 +1,6 @@
-export type TabType = 'dashboard' | 'chats' | 'calls' | 'profile' | 'lab';
+import React from 'react';
+
+export type TabType = 'chats' | 'calls' | 'directory' | 'dashboard' | 'profile';
 
 interface Props {
   activeTab: TabType;
@@ -18,23 +20,7 @@ export default function BottomNavBar({
   return (
     <nav className="bottom-nav-bar" aria-label="Main Navigation">
       <div className="bottom-nav-inner">
-        {/* Dashboard Tab */}
-        <button
-          className={`nav-tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
-          onClick={() => onChangeTab('dashboard')}
-          aria-label="Dashboard"
-          aria-selected={activeTab === 'dashboard'}
-          role="tab"
-        >
-          <div className="nav-tab-icon-wrap">
-            <svg className="nav-tab-icon" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />
-            </svg>
-          </div>
-          <span className="nav-tab-label">DASHBOARD</span>
-        </button>
-
-        {/* Chats Tab */}
+        {/* Chats Tab (WhatsApp Style) */}
         <button
           className={`nav-tab-btn ${activeTab === 'chats' ? 'active' : ''}`}
           onClick={() => onChangeTab('chats')}
@@ -68,37 +54,53 @@ export default function BottomNavBar({
           <span className="nav-tab-label">CALLS</span>
         </button>
 
-        {/* Profile Tab */}
+        {/* Directory Tab */}
+        <button
+          className={`nav-tab-btn ${activeTab === 'directory' ? 'active' : ''}`}
+          onClick={() => onChangeTab('directory')}
+          aria-label="Directory"
+          aria-selected={activeTab === 'directory'}
+          role="tab"
+        >
+          <div className="nav-tab-icon-wrap">
+            <svg className="nav-tab-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+            </svg>
+          </div>
+          <span className="nav-tab-label">DIRECTORY</span>
+        </button>
+
+        {/* Dashboard Voice Equalizer Tab */}
+        <button
+          className={`nav-tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+          onClick={() => onChangeTab('dashboard')}
+          aria-label="Voice Ops"
+          aria-selected={activeTab === 'dashboard'}
+          role="tab"
+        >
+          <div className="nav-tab-icon-wrap">
+            <svg className="nav-tab-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+            </svg>
+            {isAudioRunning && <span className="nav-badge-dot" title="DSP Running" />}
+          </div>
+          <span className="nav-tab-label">VOICE OPS</span>
+        </button>
+
+        {/* Settings / Profile Tab */}
         <button
           className={`nav-tab-btn ${activeTab === 'profile' ? 'active' : ''}`}
           onClick={() => onChangeTab('profile')}
-          aria-label="Profile"
+          aria-label="Settings"
           aria-selected={activeTab === 'profile'}
           role="tab"
         >
           <div className="nav-tab-icon-wrap">
             <svg className="nav-tab-icon" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
             </svg>
           </div>
-          <span className="nav-tab-label">PROFILE</span>
-        </button>
-
-        {/* Lab Tab */}
-        <button
-          className={`nav-tab-btn ${activeTab === 'lab' ? 'active' : ''}`}
-          onClick={() => onChangeTab('lab')}
-          aria-label="DSP Lab"
-          aria-selected={activeTab === 'lab'}
-          role="tab"
-        >
-          <div className="nav-tab-icon-wrap">
-            <svg className="nav-tab-icon" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M4 19h16v2H4zM6 9h2v8H6zm5-6h2v14h-2zm5 4h2v10h-2z" />
-            </svg>
-            {isAudioRunning && <span className="nav-badge-dot" title="DSP Running" />}
-          </div>
-          <span className="nav-tab-label">LAB</span>
+          <span className="nav-tab-label">SETTINGS</span>
         </button>
       </div>
     </nav>

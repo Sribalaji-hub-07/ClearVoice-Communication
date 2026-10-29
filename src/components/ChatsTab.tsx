@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   getChatThreads,
   getMessagesForContact,
@@ -8,8 +8,8 @@ import {
   type ChatThread,
   type ChatMessage,
 } from '../utils/chatStorage';
-import { type UserProfile, type ContactInfo, saveContact } from '../utils/userAuth';
-import { formatRelativeTime } from '../utils/callHistory';
+import { type UserProfile, type ContactInfo, fetchUserDirectory, saveContact } from '../utils/userAuth';
+import * as socketService from '../services/socket';
 import type { ChatPeerManager } from '../p2p/chatPeer';
 
 interface Props {
@@ -27,7 +27,6 @@ export default function ChatsTab({
   currentUser,
   activeContact,
   onSelectContact,
-  onViewContactProfile,
   onStartCall,
   chatPeer,
   onlinePeers,
@@ -36,15 +35,13 @@ export default function ChatsTab({
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterMode, setFilterMode] = useState<'all' | 'unread' | 'favorites'>('all');
   const [showNewChatModal, setShowNewChatModal] = useState(false);
-  const [newContactId, setNewContactId] = useState('');
-  const [newContactName, setNewContactName] = useState('');
+  const [newUsername, setNewUsername] = useState('');
   const [newChatError, setNewChatError] = useState<string | null>(null);
-  const [peerTyping, setPeerTyping] = useState(false);
-  const [sendStatus, setSendStatus] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshThreads = () => {
     setThreads(getChatThreads());
@@ -54,6 +51,7 @@ export default function ChatsTab({
     refreshThreads();
   }, []);
 
+  // When active contact changes, load messages and mark thread read
   useEffect(() => {
     if (activeContact) {
       setMessages(getMessagesForContact(activeContact.id));
@@ -63,20 +61,40 @@ export default function ChatsTab({
     }
   }, [activeContact]);
 
-  // When App.tsx receives a P2P message, it increments p2pMsgTrigger.
-  // Re-read messages from localStorage so the UI updates in real time.
+  // Handle incoming socket real-time messages
   useEffect(() => {
-    if (p2pMsgTrigger === 0) return; // skip initial
-    // Refresh the thread list
+    const unsubscribe = socketService.onReceiveChatMessage((incoming) => {
+      console.log('[CHAT-UI] Received message from socket:', incoming);
+      saveMessage(incoming.senderId, {
+        senderId: incoming.senderId,
+        receiverId: incoming.receiverId,
+        text: incoming.text,
+        timestamp: incoming.timestamp,
+        status: 'delivered',
+      });
+
+      refreshThreads();
+      if (activeContact && (activeContact.id === incoming.senderId || activeContact.id === incoming.receiverId)) {
+        setMessages(getMessagesForContact(activeContact.id));
+        scrollToBottom();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [activeContact]);
+
+  // Sync when p2p trigger updates
+  useEffect(() => {
+    if (p2pMsgTrigger === 0) return;
     refreshThreads();
-    // If we're in an active chat, reload messages for that contact
     if (activeContact) {
       setMessages(getMessagesForContact(activeContact.id));
       markThreadRead(activeContact.id);
       scrollToBottom();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p2pMsgTrigger]);
+  }, [p2pMsgTrigger, activeContact]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -89,12 +107,15 @@ export default function ChatsTab({
     const text = inputText.trim();
     if (!text || !activeContact) return;
 
-    // Save the outgoing message to localStorage immediately
+    const timestamp = Date.now();
+    const cleanReceiver = activeContact.id.toLowerCase().replace(/^#/, '');
+
+    // 1. Save locally
     const newMsg = saveMessage(activeContact.id, {
-      senderId: currentUser.id,
-      receiverId: activeContact.id,
+      senderId: currentUser.username || currentUser.id,
+      receiverId: cleanReceiver,
       text,
-      timestamp: Date.now(),
+      timestamp,
       status: 'sent',
     });
 
@@ -103,408 +124,397 @@ export default function ChatsTab({
     refreshThreads();
     scrollToBottom();
 
-    // Send via P2P DataChannel
-    if (chatPeer && activeContact.id !== '2048') {
-      const result = await chatPeer.sendMessage(activeContact.id, text);
-      if (result.sent) {
-        setSendStatus(null);
-      } else if (result.queued) {
-        setSendStatus('Peer offline — queued for delivery');
-        setTimeout(() => setSendStatus(null), 3000);
+    // 2. Broadcast via Socket.IO
+    socketService.emitSendChatMessage({
+      id: newMsg.id,
+      senderId: currentUser.username || currentUser.id,
+      senderName: currentUser.name,
+      receiverId: cleanReceiver,
+      text,
+      timestamp,
+    });
+
+    // 3. Fallback/P2P via WebRTC DataChannel
+    if (chatPeer && cleanReceiver !== 'echo_bot') {
+      try {
+        await chatPeer.sendMessage(cleanReceiver, text);
+      } catch (err) {
+        console.warn('P2P data channel skipped:', err);
       }
     }
 
-    // Echo Bot simulation (only for the demo bot)
-    if (activeContact.id === '2048') {
+    // Echo bot simulation
+    if (cleanReceiver === 'echo_bot') {
       setTimeout(() => {
         const botReply = saveMessage(activeContact.id, {
-          senderId: '2048',
-          receiverId: currentUser.id,
-          text: `[Echo P2P] Received: "${text}". Real-time DSP noise cancellation is active on room #2048.`,
+          senderId: 'echo_bot',
+          receiverId: currentUser.username || currentUser.id,
+          text: `Echo: "${text}" · (Microphone & DSP ready)`,
           timestamp: Date.now(),
-          status: 'read',
+          status: 'delivered',
         });
         setMessages((prev) => [...prev, botReply]);
         refreshThreads();
         scrollToBottom();
-      }, 1000);
+      }, 700);
     }
   };
 
-  const handleInputChange = (value: string) => {
-    setInputText(value);
-    // Send typing indicator
-    if (chatPeer && activeContact && activeContact.id !== '2048') {
-      chatPeer.sendTypingIndicator(activeContact.id);
-    }
-  };
-
-  const handleStartNewChatSubmit = (e: React.FormEvent) => {
+  const handleStartNewChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanId = newContactId.trim();
-    if (!cleanId || cleanId.length < 3) {
-      setNewChatError('Please enter a valid 4-digit ClearVoice ID (e.g. 4821).');
+    const cleanUser = newUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!cleanUser) {
+      setNewChatError('Please enter a username.');
+      return;
+    }
+    if (cleanUser === (currentUser.username || currentUser.id).toLowerCase()) {
+      setNewChatError('You cannot start a chat with yourself.');
       return;
     }
 
-    if (cleanId === currentUser.id) {
-      setNewChatError('You cannot start a chat with your own ClearVoice ID.');
-      return;
-    }
+    // Lookup user in server directory
+    const dir = await fetchUserDirectory();
+    const matched = dir.find((u) => u.username.toLowerCase() === cleanUser);
+    const targetName = matched ? matched.name : `@${cleanUser}`;
 
-    const contactName = newContactName.trim() || `User #${cleanId}`;
     const newContact: ContactInfo = {
-      id: cleanId,
-      name: contactName,
-      email: `${cleanId.toLowerCase()}@clearvoice.app`,
-      status: 'Direct ClearVoice contact',
-      avatarColor: '#00F576',
-      lastSeen: 'Unknown',
+      id: cleanUser,
+      name: targetName,
+      status: matched?.isOnline ? 'Online' : 'Offline',
+      avatarColor: matched?.avatarColor || '#00a884',
     };
 
     saveContact(newContact);
     saveChatThread({
-      contactId: newContact.id,
-      contactName: newContact.name,
-      contactEmail: newContact.email,
-      contactStatus: newContact.status,
+      contactId: cleanUser,
+      contactName: targetName,
       avatarColor: newContact.avatarColor,
-      lastMessage: 'Chat created',
+      lastMessage: 'Tap here to chat',
       lastTimestamp: Date.now(),
       unreadCount: 0,
     });
 
-    refreshThreads();
-    setShowNewChatModal(false);
-    setNewContactId('');
-    setNewContactName('');
-    setNewChatError(null);
     onSelectContact(newContact);
-  };
-
-  const insertEmoji = (emoji: string) => {
-    setInputText((prev) => prev + emoji);
+    setShowNewChatModal(false);
+    setNewUsername('');
+    setNewChatError(null);
+    refreshThreads();
   };
 
   const isContactOnline = (contactId: string): boolean => {
-    if (contactId === '2048') return true; // Echo Bot is always "online"
-    return onlinePeers.has(contactId);
+    const clean = contactId.toLowerCase().replace(/^#/, '');
+    return onlinePeers.has(clean) || onlinePeers.has(contactId);
   };
 
-  // ---------------------------------------------------------------
-  // View 1: Active 1-on-1 Chat Conversation Screen
-  // ---------------------------------------------------------------
-  if (activeContact) {
-    const contactOnline = isContactOnline(activeContact.id);
+  const formatMessageTime = (ts: number): string => {
+    const date = new Date(ts);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
 
-    return (
-      <div className="tab-pane active-chat-screen">
-        {/* Top Header Bar */}
-        <div className="chat-top-bar">
-          <button
-            className="chat-back-btn"
-            onClick={() => onSelectContact(null)}
-            aria-label="Back to chat list"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-            </svg>
-          </button>
+  const filteredThreads = threads.filter((t) => {
+    const matchesSearch =
+      t.contactName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.contactId.toLowerCase().includes(searchQuery.toLowerCase());
 
-          <div
-            className="chat-contact-info-wrap"
-            onClick={() => onViewContactProfile(activeContact)}
-            title="View Contact Profile"
-          >
-            <div className="chat-contact-avatar-wrap">
-              <div
-                className="chat-contact-avatar"
-                style={{ backgroundColor: activeContact.avatarColor || '#FFE600' }}
-              >
-                {activeContact.name.slice(0, 2).toUpperCase()}
-              </div>
-              <div className={`online-indicator ${contactOnline ? 'online' : 'offline'}`} />
-            </div>
-            <div className="chat-contact-meta">
-              <h3 className="chat-contact-name">{activeContact.name}</h3>
-              <span className="chat-contact-sub">
-                ID #{activeContact.id} ·{' '}
-                {peerTyping ? (
-                  <span className="typing-indicator-text">typing…</span>
-                ) : contactOnline ? (
-                  'Online'
-                ) : (
-                  'Offline'
-                )}
-              </span>
-            </div>
-          </div>
+    if (!matchesSearch) return false;
+    if (filterMode === 'unread') return t.unreadCount > 0;
+    return true;
+  });
 
-          <div className="chat-top-actions">
+  return (
+    <div className="wa-chat-container">
+      {/* ── Left Chats List Pane ── */}
+      <aside className="wa-chats-sidebar">
+        {/* Top Header */}
+        <div className="wa-sidebar-header">
+          <h2 className="wa-sidebar-title">Chats</h2>
+          <div className="wa-header-actions">
             <button
-              className="chat-action-icon-btn call"
-              onClick={() => onStartCall(activeContact.id, activeContact.name)}
-              title="Voice Call with Noise Suppression"
-              aria-label="Voice Call"
+              className="wa-icon-btn"
+              onClick={() => setShowNewChatModal(true)}
+              title="New Chat"
             >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-2.2 2.2a15.053 15.053 0 01-6.59-6.59l2.2-2.21a.96.96 0 00.25-1.01A11.36 11.36 0 018.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-.99-1z" />
-              </svg>
-            </button>
-            <button
-              className="chat-action-icon-btn info"
-              onClick={() => onViewContactProfile(activeContact)}
-              title="View Profile"
-              aria-label="View Profile"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
               </svg>
             </button>
           </div>
         </div>
 
-        {/* Chat Messages Canvas */}
-        <div className="chat-messages-container">
-          <div className="chat-p2p-notice">
-            <span>
-              {contactOnline
-                ? '🟢 PEER CONNECTED · DIRECT P2P ENCRYPTION'
-                : '⚪ PEER OFFLINE · MESSAGES QUEUED LOCALLY'}
-            </span>
+        {/* Search Bar */}
+        <div className="wa-search-wrapper">
+          <div className="wa-search-input-box">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#8696a0">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search or start a new chat"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
+        </div>
 
-          {sendStatus && (
-            <div className="chat-send-status-banner">{sendStatus}</div>
-          )}
+        {/* Category Filter Pills (All / Unread / Favourites) */}
+        <div className="wa-filter-chips">
+          <button
+            className={`wa-chip-btn ${filterMode === 'all' ? 'active' : ''}`}
+            onClick={() => setFilterMode('all')}
+          >
+            All
+          </button>
+          <button
+            className={`wa-chip-btn ${filterMode === 'unread' ? 'active' : ''}`}
+            onClick={() => setFilterMode('unread')}
+          >
+            Unread
+          </button>
+          <button
+            className={`wa-chip-btn ${filterMode === 'favorites' ? 'active' : ''}`}
+            onClick={() => setFilterMode('favorites')}
+          >
+            Favourites
+          </button>
+        </div>
 
-          {messages.map((msg) => {
-            const isMe = msg.senderId === currentUser.id || msg.senderId === 'me';
-            const timeStr = new Date(msg.timestamp).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            });
+        {/* Chat List */}
+        <div className="wa-threads-scroll">
+          {filteredThreads.length === 0 ? (
+            <div className="wa-no-chats-hint">
+              <p>No conversations yet.</p>
+              <button
+                className="wa-start-chat-btn"
+                onClick={() => setShowNewChatModal(true)}
+              >
+                + Start a New Chat
+              </button>
+            </div>
+          ) : (
+            filteredThreads.map((thread) => {
+              const isSelected = activeContact?.id === thread.contactId;
+              const isLive = isContactOnline(thread.contactId);
 
-            return (
-              <div key={msg.id} className={`chat-bubble-row ${isMe ? 'outgoing' : 'incoming'}`}>
-                <div className={`chat-bubble ${isMe ? 'outgoing' : 'incoming'}`}>
-                  <p className="chat-bubble-text">{msg.text}</p>
-                  <div className="chat-bubble-meta">
-                    <span className="chat-bubble-time">{timeStr}</span>
-                    {isMe && (
-                      <span className="chat-bubble-status" title={msg.status}>
-                        {msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}
+              return (
+                <div
+                  key={thread.contactId}
+                  className={`wa-thread-row ${isSelected ? 'selected' : ''}`}
+                  onClick={() =>
+                    onSelectContact({
+                      id: thread.contactId,
+                      name: thread.contactName,
+                      avatarColor: thread.avatarColor || '#00a884',
+                      status: isLive ? 'Online' : 'Offline',
+                    })
+                  }
+                >
+                  {/* Avatar */}
+                  <div className="wa-thread-avatar">
+                    {thread.contactName.slice(0, 2).toUpperCase()}
+                    {isLive && <span className="wa-online-dot" />}
+                  </div>
+
+                  {/* Info */}
+                  <div className="wa-thread-content">
+                    <div className="wa-thread-top">
+                      <span className="wa-thread-name">{thread.contactName}</span>
+                      <span className="wa-thread-time">
+                        {thread.lastTimestamp ? formatMessageTime(thread.lastTimestamp) : ''}
                       </span>
-                    )}
+                    </div>
+
+                    <div className="wa-thread-bottom">
+                      <span className="wa-thread-snippet">
+                        <span className="wa-check-icon">✓✓</span> {thread.lastMessage || 'No messages yet'}
+                      </span>
+                      {thread.unreadCount > 0 && (
+                        <span className="wa-unread-badge">{thread.unreadCount}</span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
+        </div>
+      </aside>
 
-          {peerTyping && (
-            <div className="chat-bubble-row incoming">
-              <div className="chat-bubble incoming typing-bubble">
-                <span className="typing-dots">
-                  <span>•</span>
-                  <span>•</span>
-                  <span>•</span>
+      {/* ── Right Main Conversation Window ── */}
+      {activeContact ? (
+        <main className="wa-convo-panel">
+          {/* Conversation Top Header */}
+          <header className="wa-convo-header">
+            <div className="wa-convo-contact-info">
+              <div className="wa-convo-avatar">
+                {activeContact.name.slice(0, 2).toUpperCase()}
+              </div>
+              <div className="wa-convo-names">
+                <h3>{activeContact.name}</h3>
+                <span className="wa-convo-status">
+                  {isContactOnline(activeContact.id) ? (
+                    <strong style={{ color: '#00a884' }}>online</strong>
+                  ) : (
+                    `@${activeContact.id}`
+                  )}
                 </span>
               </div>
             </div>
-          )}
 
-          <div ref={messagesEndRef} />
-        </div>
+            {/* Calling & Search Actions */}
+            <div className="wa-convo-actions">
+              <button
+                className="wa-convo-action-btn"
+                onClick={() => onStartCall(activeContact.id, activeContact.name)}
+                title="Voice Call"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-2.2 2.2a15.053 15.053 0 01-6.59-6.59l2.2-2.21a.96.96 0 00.25-1.01A11.36 11.36 0 018.5 3.99c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.61c0-.55-.45-1-.99-1z" />
+                </svg>
+              </button>
 
-        {/* Emoji Quick Bar */}
-        <div className="chat-emoji-bar">
-          {['🎙️', '⚡', '👍', '🔥', '✨', '😊', '🔊', '📞'].map((em) => (
-            <button key={em} type="button" className="emoji-chip" onClick={() => insertEmoji(em)}>
-              {em}
-            </button>
-          ))}
-        </div>
-
-        {/* Chat Input Footer */}
-        <form onSubmit={handleSendMessage} className="chat-input-form">
-          <input
-            type="text"
-            className="chat-text-input"
-            placeholder="Type your message..."
-            value={inputText}
-            onChange={(e) => handleInputChange(e.target.value)}
-            autoFocus
-          />
-          <button
-            type="submit"
-            className="chat-send-btn"
-            disabled={!inputText.trim()}
-            title="Send Message"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------
-  // View 2: Chat Thread List Screen
-  // ---------------------------------------------------------------
-  return (
-    <div className="tab-pane chats-tab">
-      {/* Header Sticker Card */}
-      <div className="chats-header-card">
-        <div className="chats-title-row">
-          <h2 className="chats-main-title">CHATS</h2>
-          <span className="chats-my-id-badge" title="Your ClearVoice ID">
-            MY ID: <strong>#{currentUser.id}</strong>
-          </span>
-        </div>
-        <p className="chats-header-desc">
-          Direct peer-to-peer encrypted messaging &amp; noise-cancelled voice calling.
-          {chatPeer?.connected ? (
-            <span className="p2p-status-inline online"> · P2P CONNECTED ✓</span>
-          ) : (
-            <span className="p2p-status-inline offline"> · CONNECTING…</span>
-          )}
-        </p>
-      </div>
-
-      {/* Threads List */}
-      <div className="chat-threads-list">
-        {threads.length === 0 ? (
-          <div className="empty-chats-state">
-            <div className="empty-chats-icon">💬</div>
-            <h4>NO CONVERSATIONS YET</h4>
-            <p>
-              Tap the + NEW CHAT button below to connect with any peer using their 4-digit
-              ClearVoice ID!
-            </p>
-          </div>
-        ) : (
-          threads.map((t) => (
-            <div
-              key={t.contactId}
-              className="chat-thread-item"
-              onClick={() =>
-                onSelectContact({
-                  id: t.contactId,
-                  name: t.contactName,
-                  email: t.contactEmail,
-                  status: t.contactStatus,
-                  avatarColor: t.avatarColor,
-                })
-              }
-            >
-              {/* Avatar circle with online indicator */}
-              <div className="chat-thread-avatar-wrap">
-                <div
-                  className="chat-thread-avatar"
-                  style={{ backgroundColor: t.avatarColor || '#FFE600' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onViewContactProfile({
-                      id: t.contactId,
-                      name: t.contactName,
-                      email: t.contactEmail,
-                      status: t.contactStatus,
-                      avatarColor: t.avatarColor,
-                    });
-                  }}
-                  title="View Profile"
-                >
-                  {t.contactName.slice(0, 2).toUpperCase()}
-                </div>
-                <div
-                  className={`online-indicator ${isContactOnline(t.contactId) ? 'online' : 'offline'}`}
-                />
-              </div>
-
-              {/* Thread Details */}
-              <div className="chat-thread-details">
-                <div className="chat-thread-title-row">
-                  <span className="chat-thread-name">{t.contactName}</span>
-                  <span className="chat-thread-time">{formatRelativeTime(t.lastTimestamp)}</span>
-                </div>
-                <div className="chat-thread-sub-row">
-                  <p className="chat-thread-snippet">{t.lastMessage}</p>
-                  {t.unreadCount > 0 && (
-                    <span className="chat-thread-unread-badge">{t.unreadCount}</span>
-                  )}
-                </div>
-              </div>
+              <button
+                className="wa-convo-action-btn"
+                onClick={() => onStartCall(activeContact.id, activeContact.name)}
+                title="Video / Audio Call"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+                </svg>
+              </button>
             </div>
-          ))
-        )}
-      </div>
+          </header>
 
-      {/* Neo-Brutalist FAB for New Chat */}
-      <button
-        className="whatsapp-fab"
-        onClick={() => setShowNewChatModal(true)}
-        title="Start New Chat"
-        aria-label="Start New Chat"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-        </svg>
-      </button>
+          {/* Messages Stream with WhatsApp Dark Wallpaper Background */}
+          <div className="wa-messages-viewport">
+            <div className="wa-date-divider-pill">
+              <span>TODAY</span>
+            </div>
 
-      {/* New Chat Modal */}
+            <div className="wa-bubble-flow">
+              {messages.map((msg) => {
+                const isMe = msg.senderId === (currentUser.username || currentUser.id);
+
+                return (
+                  <div key={msg.id} className={`wa-bubble-row ${isMe ? 'sent' : 'received'}`}>
+                    <div className="wa-bubble-card">
+                      <p className="wa-bubble-text">{msg.text}</p>
+                      <div className="wa-bubble-meta">
+                        <span className="wa-bubble-time">{formatMessageTime(msg.timestamp)}</span>
+                        {isMe && (
+                          <span className="wa-double-check" title="Delivered">
+                            ✓✓
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
+
+          {/* Bottom Message Input Bar */}
+          <footer className="wa-chat-input-bar">
+            <button className="wa-input-icon-btn" title="Emoji">
+              😊
+            </button>
+            <button className="wa-input-icon-btn" title="Attach file">
+              📎
+            </button>
+
+            <form onSubmit={handleSendMessage} className="wa-input-form">
+              <input
+                type="text"
+                placeholder="Type a message"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                autoFocus
+              />
+              <button
+                type="submit"
+                className="wa-send-submit-btn"
+                disabled={!inputText.trim()}
+                title="Send"
+              >
+                {inputText.trim() ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                  </svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z" />
+                  </svg>
+                )}
+              </button>
+            </form>
+          </footer>
+        </main>
+      ) : (
+        <main className="wa-empty-convo-panel">
+          <div className="wa-empty-prompt-card">
+            <div className="wa-empty-icon">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="#00a884">
+                <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z" />
+              </svg>
+            </div>
+            <h2>ClearVoice Web</h2>
+            <p>
+              Send and receive messages with peer-to-peer security. Select a chat or search for a
+              username to start messaging.
+            </p>
+            <button
+              onClick={() => setShowNewChatModal(true)}
+              className="wa-new-chat-hero-btn"
+            >
+              Start New Chat
+            </button>
+          </div>
+        </main>
+      )}
+
+      {/* ── New Chat Modal ── */}
       {showNewChatModal && (
-        <div className="modal-backdrop" onClick={() => setShowNewChatModal(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>START NEW CHAT</h3>
-              <button className="modal-close-btn" onClick={() => setShowNewChatModal(false)}>
+        <div className="wa-modal-overlay">
+          <div className="wa-modal-card">
+            <div className="wa-modal-header">
+              <h3>Start New Chat</h3>
+              <button
+                className="wa-modal-close-btn"
+                onClick={() => {
+                  setShowNewChatModal(false);
+                  setNewChatError(null);
+                }}
+              >
                 ✕
               </button>
             </div>
-            <form onSubmit={handleStartNewChatSubmit} className="modal-body">
-              <p className="modal-desc">
-                Enter your contact's 4-digit <strong>ClearVoice ID</strong>:
-              </p>
 
-              <div className="auth-input-group">
-                <label className="auth-label">ClearVoice ID *</label>
+            <form onSubmit={handleStartNewChat} className="wa-modal-form">
+              <label>Recipient Username</label>
+              <div className="wa-modal-input-wrap">
+                <span>@</span>
                 <input
                   type="text"
-                  className="auth-input"
-                  placeholder="e.g. 4821"
-                  maxLength={6}
-                  value={newContactId}
-                  onChange={(e) => {
-                    setNewContactId(e.target.value);
-                    setNewChatError(null);
-                  }}
+                  placeholder="e.g. sribalaji"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value.toLowerCase())}
                   autoFocus
-                  required
                 />
               </div>
 
-              <div className="auth-input-group" style={{ marginTop: 12 }}>
-                <label className="auth-label">Contact Name (Optional)</label>
-                <input
-                  type="text"
-                  className="auth-input"
-                  placeholder="e.g. Sarah Connor"
-                  value={newContactName}
-                  onChange={(e) => setNewContactName(e.target.value)}
-                />
-              </div>
+              {newChatError && <div className="wa-modal-error">{newChatError}</div>}
 
-              {newChatError && <div className="error-banner">{newChatError}</div>}
-
-              <div className="modal-actions-row" style={{ marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary">
-                  OPEN CHAT 💬
+              <div className="wa-modal-footer">
+                <button
+                  type="button"
+                  className="wa-modal-cancel"
+                  onClick={() => setShowNewChatModal(false)}
+                >
+                  Cancel
                 </button>
-                <button type="button" className="btn" onClick={() => setShowNewChatModal(false)}>
-                  CANCEL
+                <button type="submit" className="wa-modal-submit">
+                  Open Chat
                 </button>
               </div>
             </form>

@@ -1,91 +1,53 @@
 export interface UserProfile {
-  id: string;
-  email: string;
-  name: string;
+  id: string; // The unique username (e.g. "sribalaji")
+  username: string; // unique username
+  name: string; // display name (e.g. "Sri Balaji")
+  email?: string;
   status: string;
   avatarColor: string;
   createdAt: number;
 }
 
 export interface ContactInfo {
-  id: string;
+  id: string; // username
   name: string;
-  email: string;
+  email?: string;
   status?: string;
   avatarColor: string;
   lastSeen?: string;
 }
 
-export interface RegisteredAccount {
+export interface DirectoryUser {
   id: string;
-  email: string;
+  username: string;
   name: string;
-  status: string;
-  avatarColor: string;
-  createdAt: number;
+  isOnline: boolean;
+  avatarColor?: string;
+  createdAt?: number;
 }
 
 const AUTH_STORAGE_KEY = 'clearvoice_user_session';
 const CONTACTS_STORAGE_KEY = 'clearvoice_saved_contacts';
-const ACCOUNT_REGISTRY_KEY = 'clearvoice_account_registry';
+const LOCAL_USERS_KEY = 'clearvoice_registered_users';
 
 const AVATAR_COLORS = [
-  '#FFE600', // Cyber Yellow
-  '#00F576', // Electric Lime
-  '#00E5FF', // Electric Sky
-  '#FF3366', // Hot Coral Pink
-  '#FF9100', // Neon Orange
-  '#A855F7', // Vivid Purple
-  '#25D366', // Emerald
-  '#38BDF8', // Cyan
+  '#00a884', // WhatsApp Green
+  '#25d366', // Bright Green
+  '#38bdf8', // Sky Blue
+  '#a855f7', // Purple
+  '#f59e0b', // Amber
+  '#ef4444', // Coral Red
+  '#06b6d4', // Cyan
+  '#ec4899', // Pink
 ];
-
-function generateUniqueIdFromEmail(email: string): string {
-  let hash = 0;
-  for (let i = 0; i < email.length; i++) {
-    hash = (hash << 5) - hash + email.charCodeAt(i);
-    hash |= 0;
-  }
-  const positive = Math.abs(hash);
-  return String(positive % 9000 + 1000);
-}
 
 function getRandomColor(): string {
   return AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
 }
 
-/* ============================================================
-   ACCOUNT REGISTRY — one email = one account enforcement
-   ============================================================ */
-
-export function getRegisteredAccounts(): RegisteredAccount[] {
-  try {
-    const raw = localStorage.getItem(ACCOUNT_REGISTRY_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
-
-export function isEmailRegistered(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  return getRegisteredAccounts().some((a) => a.email === normalized);
-}
-
-export function getAccountByEmail(email: string): RegisteredAccount | null {
-  const normalized = email.trim().toLowerCase();
-  return getRegisteredAccounts().find((a) => a.email === normalized) || null;
-}
-
-function saveAccountToRegistry(account: RegisteredAccount): void {
-  const accounts = getRegisteredAccounts().filter((a) => a.email !== account.email);
-  accounts.push(account);
-  try {
-    localStorage.setItem(ACCOUNT_REGISTRY_KEY, JSON.stringify(accounts));
-  } catch (e) {
-    console.error('Failed to save account registry', e);
-  }
+function getApiBaseUrl(): string {
+  const isProd = import.meta.env.PROD;
+  return isProd ? window.location.origin : `http://${window.location.hostname}:3001`;
 }
 
 /* ============================================================
@@ -96,88 +58,142 @@ export function getCurrentUser(): UserProfile | null {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const user = JSON.parse(raw);
+    if (!user.username && user.id) {
+      user.username = user.id;
+    }
+    return user;
   } catch {
     return null;
   }
 }
 
 /**
- * Register a new account (Sign Up flow).
- * Returns an error if the email is already registered.
+ * Sign up with unique username and password
+ * No Gmail, No OTP constraints — instant and decentralized
  */
-export function registerAccount(
-  email: string,
-  name: string,
-  status?: string,
-): { user: UserProfile | null; error?: string } {
-  const trimmedEmail = email.trim().toLowerCase();
-
-  if (isEmailRegistered(trimmedEmail)) {
-    return { user: null, error: 'This email already has a ClearVoice account. Please log in instead.' };
+export async function signUpWithUsername(
+  username: string,
+  password: string,
+  displayName?: string,
+): Promise<{ user: UserProfile | null; error?: string }> {
+  const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (!cleanUsername || cleanUsername.length < 3) {
+    return { user: null, error: 'Username must be at least 3 alphanumeric characters (a-z, 0-9, _).' };
   }
 
-  const trimmedName = name.trim() || trimmedEmail.split('@')[0];
-  const uniqueId = generateUniqueIdFromEmail(trimmedEmail);
+  if (!password || password.length < 4) {
+    return { user: null, error: 'Password must be at least 4 characters.' };
+  }
+
+  const cleanName = (displayName || cleanUsername).trim();
   const avatarColor = getRandomColor();
 
-  const user: UserProfile = {
-    id: uniqueId,
-    email: trimmedEmail,
-    name: trimmedName,
-    status: status?.trim() || 'Available · Using ClearVoice DSP',
-    avatarColor,
-    createdAt: Date.now(),
-  };
-
-  // Save to registry
-  saveAccountToRegistry({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    status: user.status,
-    avatarColor: user.avatarColor,
-    createdAt: user.createdAt,
-  });
-
-  // Set active session
   try {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-  } catch (e) {
-    console.error('Failed to save user session', e);
-  }
+    const response = await fetch(`${getApiBaseUrl()}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: cleanUsername,
+        password,
+        displayName: cleanName,
+      }),
+    });
 
-  return { user };
+    const data = await response.json();
+    if (!response.ok) {
+      return { user: null, error: data.error || 'Failed to sign up.' };
+    }
+
+    const user: UserProfile = {
+      id: cleanUsername,
+      username: cleanUsername,
+      name: cleanName,
+      status: 'Hey there! I am using ClearVoice',
+      avatarColor,
+      createdAt: data.user?.createdAt || Date.now(),
+    };
+
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+    return { user };
+  } catch (err) {
+    console.warn('[AUTH] Server signup failed, using local offline fallback:', err);
+    // Offline local fallback
+    const user: UserProfile = {
+      id: cleanUsername,
+      username: cleanUsername,
+      name: cleanName,
+      status: 'Hey there! I am using ClearVoice',
+      avatarColor,
+      createdAt: Date.now(),
+    };
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+    return { user };
+  }
 }
 
 /**
- * Log in to an existing account (Login flow).
- * Returns an error if the email is not registered.
+ * Log in with username and password
  */
-export function loginAccount(email: string): { user: UserProfile | null; error?: string } {
-  const trimmedEmail = email.trim().toLowerCase();
-  const account = getAccountByEmail(trimmedEmail);
-
-  if (!account) {
-    return { user: null, error: 'No account found with this email. Please sign up first.' };
+export async function loginWithUsername(
+  username: string,
+  password: string,
+): Promise<{ user: UserProfile | null; error?: string }> {
+  const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (!cleanUsername || !password) {
+    return { user: null, error: 'Please enter your username and password.' };
   }
-
-  const user: UserProfile = {
-    id: account.id,
-    email: account.email,
-    name: account.name,
-    status: account.status,
-    avatarColor: account.avatarColor,
-    createdAt: account.createdAt,
-  };
 
   try {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-  } catch (e) {
-    console.error('Failed to save user session', e);
-  }
+    const response = await fetch(`${getApiBaseUrl()}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: cleanUsername,
+        password,
+      }),
+    });
 
-  return { user };
+    const data = await response.json();
+    if (!response.ok) {
+      return { user: null, error: data.error || 'Invalid username or password.' };
+    }
+
+    const user: UserProfile = {
+      id: data.user.id || cleanUsername,
+      username: cleanUsername,
+      name: data.user.name || cleanUsername,
+      status: 'Hey there! I am using ClearVoice',
+      avatarColor: getRandomColor(),
+      createdAt: data.user.createdAt || Date.now(),
+    };
+
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+    return { user };
+  } catch (err) {
+    console.warn('[AUTH] Server login failed, checking local session:', err);
+    const existing = getCurrentUser();
+    if (existing && existing.username === cleanUsername) {
+      return { user: existing };
+    }
+    return { user: null, error: 'Unable to connect to authentication server. Please check your network.' };
+  }
+}
+
+/**
+ * Fetch directory of all users with online/offline status
+ */
+export async function fetchUserDirectory(): Promise<DirectoryUser[]> {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/users`);
+    if (res.ok) {
+      const users: DirectoryUser[] = await res.json();
+      return users;
+    }
+  } catch (err) {
+    console.warn('[DIRECTORY] Failed to fetch users from server:', err);
+  }
+  return [];
 }
 
 export function updateUserProfile(updates: Partial<UserProfile>): UserProfile | null {
@@ -185,24 +201,11 @@ export function updateUserProfile(updates: Partial<UserProfile>): UserProfile | 
   if (!current) return null;
 
   const updated: UserProfile = { ...current, ...updates };
-
   try {
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
   } catch (e) {
     console.error('Failed to update user session', e);
   }
-
-  // Also update registry
-  const account = getAccountByEmail(updated.email);
-  if (account) {
-    saveAccountToRegistry({
-      ...account,
-      name: updated.name,
-      status: updated.status,
-      avatarColor: updated.avatarColor,
-    });
-  }
-
   return updated;
 }
 
@@ -215,7 +218,7 @@ export function logoutUser(): void {
 }
 
 /* ============================================================
-   CONTACTS
+   CONTACTS (Recent Peers & Saved Chats)
    ============================================================ */
 
 export function getSavedContacts(): ContactInfo[] {
@@ -224,11 +227,10 @@ export function getSavedContacts(): ContactInfo[] {
     if (!raw) {
       return [
         {
-          id: '2048',
+          id: 'echo_bot',
           name: 'ClearVoice Echo Bot',
-          email: 'echobot@clearvoice.app',
-          status: 'Direct peer audio & text testing',
-          avatarColor: '#FFE600',
+          status: 'Test your microphone and sound quality',
+          avatarColor: '#00a884',
           lastSeen: 'Online',
         },
       ];

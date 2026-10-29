@@ -3,6 +3,8 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,14 +12,140 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Allow CORS for dev, but in production (Railway), they will be on the same domain
+// Body parsing
+app.use(express.json());
+
+// Allow CORS for dev, but in production (Railway/Render), they will be on the same domain
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
   next();
 });
 
-// Serve static frontend files from the Vite 'dist' folder
+// User Storage & Persistence
+interface UserRecord {
+  username: string;
+  displayName: string;
+  passwordHash: string;
+  createdAt: number;
+}
+
+const USERS_FILE = path.join(__dirname, 'users.json');
+const usersMap = new Map<string, UserRecord>();
+
+function loadUsers(): void {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const data = fs.readFileSync(USERS_FILE, 'utf-8');
+      const list: UserRecord[] = JSON.parse(data);
+      list.forEach((u) => usersMap.set(u.username.toLowerCase(), u));
+      console.log(`[SERVER] Loaded ${usersMap.size} registered users from disk.`);
+    }
+  } catch (err) {
+    console.error('[SERVER] Failed to load users file:', err);
+  }
+}
+
+function saveUsers(): void {
+  try {
+    const list = Array.from(usersMap.values());
+    fs.writeFileSync(USERS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[SERVER] Failed to save users file:', err);
+  }
+}
+
+function hashPassword(password: string): string {
+  return crypto.createHash('sha256').update(password.trim()).digest('hex');
+}
+
+loadUsers();
+
+// Auth Endpoints: Username + Password (No Gmail, No OTP)
+app.post('/api/auth/signup', (req, res) => {
+  const { username, password, displayName } = req.body || {};
+  const cleanUsername = String(username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+
+  if (!cleanUsername || cleanUsername.length < 3) {
+    return res.status(400).json({ error: 'Username must be at least 3 alphanumeric characters (a-z, 0-9, _).' });
+  }
+
+  if (!password || String(password).length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  }
+
+  if (usersMap.has(cleanUsername)) {
+    return res.status(400).json({ error: `Username "${cleanUsername}" is already taken. Please choose another.` });
+  }
+
+  const cleanDisplayName = String(displayName || cleanUsername).trim();
+  const newUser: UserRecord = {
+    username: cleanUsername,
+    displayName: cleanDisplayName,
+    passwordHash: hashPassword(password),
+    createdAt: Date.now(),
+  };
+
+  usersMap.set(cleanUsername, newUser);
+  saveUsers();
+  console.log(`[AUTH] New user registered: ${cleanDisplayName} (@${cleanUsername})`);
+
+  return res.json({
+    user: {
+      id: cleanUsername,
+      username: cleanUsername,
+      name: cleanDisplayName,
+      createdAt: newUser.createdAt,
+    },
+  });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {};
+  const cleanUsername = String(username || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+
+  if (!cleanUsername || !password) {
+    return res.status(400).json({ error: 'Please enter your username and password.' });
+  }
+
+  const existing = usersMap.get(cleanUsername);
+  if (!existing || existing.passwordHash !== hashPassword(password)) {
+    return res.status(401).json({ error: 'Invalid username or password.' });
+  }
+
+  console.log(`[AUTH] User signed in: ${existing.displayName} (@${existing.username})`);
+  return res.json({
+    user: {
+      id: existing.username,
+      username: existing.username,
+      name: existing.displayName,
+      createdAt: existing.createdAt,
+    },
+  });
+});
+
+// User Directory Endpoint
+app.get('/api/users', (req, res) => {
+  const onlineSet = new Set(
+    Array.from(onlineUsers.values()).map((u) => u.userId.toLowerCase())
+  );
+
+  const directory = Array.from(usersMap.values()).map((u) => ({
+    id: u.username,
+    username: u.username,
+    name: u.displayName,
+    isOnline: onlineSet.has(u.username.toLowerCase()),
+    createdAt: u.createdAt,
+  }));
+
+  return res.json(directory);
+});
+
+// Serve static frontend files from Vite 'dist'
 app.use(express.static(path.join(__dirname, '../dist')));
 
 const httpServer = createServer(app);
@@ -216,6 +344,12 @@ io.on('connection', (socket) => {
     console.log(`[SIGNAL] end-call: Call ${data.callId} ended by ${data.fromUserId}`);
     emitToTarget(data.targetId, 'call-ended', { callId: data.callId, reason: data.reason });
     activeCalls.delete(data.callId);
+  });
+
+  // Direct Chat Message Relay (Real-time WebSocket)
+  socket.on('send-chat-message', (data: { id: string; senderId: string; senderName: string; receiverId: string; text: string; timestamp: number }) => {
+    console.log(`[CHAT] Message from ${data.senderName} (${data.senderId}) to ${data.receiverId}`);
+    emitToTarget(data.receiverId, 'receive-chat-message', data);
   });
 
   socket.on('disconnect', () => {

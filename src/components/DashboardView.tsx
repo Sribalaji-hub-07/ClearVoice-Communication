@@ -1,26 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
-import type { UserProfile, ContactInfo } from '../utils/userAuth';
+import React, { useState, useEffect } from 'react';
 import type { LevelReport } from '../audio/types';
-import type { OnlineUser, CallStats } from '../types/call';
+import type { UserProfile, ContactInfo } from '../utils/userAuth';
+import type { OnlineUser, CallState, CallStats } from '../types/call';
 import { getRecentCalls, type CallRecord } from '../utils/callHistory';
+import SoundWaveVisualizer from './SoundWaveVisualizer';
 
 interface Props {
   currentUser: UserProfile;
   levels: LevelReport | null;
-  analysers: {
-    original: AnalyserNode | null;
-    enhanced: AnalyserNode | null;
-  };
+  analysers: { original: AnalyserNode | null; enhanced: AnalyserNode | null };
   isAudioRunning: boolean;
   suppression: number;
-  onSuppressionChange: (val: number) => void;
+  onSuppressionChange: (v: number) => void;
   onlineUsers: OnlineUser[];
-  callState: string;
+  callState: CallState;
   callStats: CallStats | null;
-  onStartCall: (contactId: string, contactName: string) => Promise<void>;
+  onStartCall: (targetId: string, targetName: string) => void;
   onHangup: () => void;
-  onViewContactProfile?: (contact: ContactInfo) => void;
-  onStartAudio: () => Promise<boolean>;
+  onViewContactProfile: (contact: ContactInfo) => void;
+  onStartAudio: () => void;
   onStopAudio: () => void;
 }
 
@@ -35,21 +33,14 @@ export default function DashboardView({
   callState,
   callStats,
   onStartCall,
-  onHangup,
   onStartAudio,
   onStopAudio,
 }: Props) {
-  const [currentTime, setCurrentTime] = useState<string>('');
-  const [currentDate, setCurrentDate] = useState<string>('');
-  const [timeFilter, setTimeFilter] = useState<'15m' | '1h' | '6h' | 'all'>('1h');
-  const [dialPin, setDialPin] = useState('');
+  const [currentTime, setCurrentTime] = useState('');
+  const [currentDate, setCurrentDate] = useState('');
+  const [dialTarget, setDialTarget] = useState('');
   const [recentCalls, setRecentCalls] = useState<CallRecord[]>([]);
 
-  const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const enhancedCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Live clock
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -63,425 +54,211 @@ export default function DashboardView({
     return () => clearInterval(interval);
   }, []);
 
-  // Recent calls
   useEffect(() => {
     setRecentCalls(getRecentCalls().slice(0, 5));
   }, [callState]);
 
-  // Telemetry Calculations
   const inputRms = levels ? Math.round(levels.inputLevel * 100) : 0;
-  const inputDb = levels ? Math.round(Math.max(-60, 20 * Math.log10(levels.inputLevel + 0.0001))) : -60;
-  const rtt = callStats ? Math.round(callStats.rtt) : 24;
-  const packetLoss = callStats ? callStats.packetLoss.toFixed(1) : '0.0';
-  const otherUsers = onlineUsers.filter((u) => u.userId !== currentUser.id);
+  const inputDb = levels
+    ? Math.max(-60, Math.round(20 * Math.log10(levels.noiseFloorEnergy + 0.0001)))
+    : -45;
+  const rtt = callStats ? Math.round(callStats.rtt) : 18;
 
-  // Waveform Render Loop
-  useEffect(() => {
-    let animId: number;
-
-    const render = () => {
-      // 1. Original Waveform
-      if (originalCanvasRef.current && analysers.original) {
-        const canvas = originalCanvasRef.current;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const bufferLength = analysers.original.frequencyBinCount;
-          const dataArray = new Uint8Array(bufferLength);
-          analysers.original.getByteTimeDomainData(dataArray);
-
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-          // Grid lines
-          ctx.strokeStyle = '#f1f5f9';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(0, canvas.height / 2);
-          ctx.lineTo(canvas.width, canvas.height / 2);
-          ctx.stroke();
-
-          // Wave
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = '#2563eb';
-          ctx.beginPath();
-          const sliceWidth = canvas.width / bufferLength;
-          let x = 0;
-          for (let i = 0; i < bufferLength; i++) {
-            const v = dataArray[i] / 128.0;
-            const y = (v * canvas.height) / 2;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-            x += sliceWidth;
-          }
-          ctx.stroke();
-        }
-      }
-
-      // 2. Enhanced Waveform
-      if (enhancedCanvasRef.current && analysers.enhanced) {
-        const canvas = enhancedCanvasRef.current;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const bufferLength = analysers.enhanced.frequencyBinCount;
-          const dataArray = new Uint8Array(bufferLength);
-          analysers.enhanced.getByteTimeDomainData(dataArray);
-
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-          // Grid lines
-          ctx.strokeStyle = '#f1f5f9';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(0, canvas.height / 2);
-          ctx.lineTo(canvas.width, canvas.height / 2);
-          ctx.stroke();
-
-          // Wave
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = '#10b981';
-          ctx.beginPath();
-          const sliceWidth = canvas.width / bufferLength;
-          let x = 0;
-          for (let i = 0; i < bufferLength; i++) {
-            const v = dataArray[i] / 128.0;
-            const y = (v * canvas.height) / 2;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-            x += sliceWidth;
-          }
-          ctx.stroke();
-        }
-      }
-
-      // 3. Spectrum Analyzer
-      if (spectrumCanvasRef.current && (analysers.enhanced || analysers.original)) {
-        const targetAnalyser = analysers.enhanced || analysers.original;
-        const canvas = spectrumCanvasRef.current;
-        const ctx = canvas.getContext('2d');
-        if (ctx && targetAnalyser) {
-          const bufferLength = targetAnalyser.frequencyBinCount;
-          const dataArray = new Uint8Array(bufferLength);
-          targetAnalyser.getByteFrequencyData(dataArray);
-
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-          // Grid lines
-          ctx.strokeStyle = '#f1f5f9';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          for (let y = 30; y < canvas.height; y += 35) {
-            ctx.moveTo(0, y);
-            ctx.lineTo(canvas.width, y);
-          }
-          ctx.stroke();
-
-          const barWidth = (canvas.width / bufferLength) * 2.5;
-          let x = 0;
-          for (let i = 0; i < bufferLength; i++) {
-            const barHeight = (dataArray[i] / 255) * canvas.height;
-            ctx.fillStyle = '#2563eb';
-            ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
-            x += barWidth;
-            if (x > canvas.width) break;
-          }
-        }
-      }
-
-      animId = requestAnimationFrame(render);
-    };
-
-    render();
-    return () => cancelAnimationFrame(animId);
-  }, [analysers, levels, callState]);
+  const otherUsers = onlineUsers.filter(
+    (u) => u.userId.toLowerCase() !== (currentUser.username || currentUser.id).toLowerCase()
+  );
 
   const handleDial = (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = dialPin.trim().replace(/^#/, '');
+    const clean = dialTarget.trim().toLowerCase().replace(/^@/, '').replace(/^#/, '');
     if (!clean) return;
-    const target = otherUsers.find((u) => u.userId === clean || u.userName.toLowerCase() === clean.toLowerCase());
+    const target = otherUsers.find(
+      (u) =>
+        u.userId.toLowerCase() === clean ||
+        u.userName.toLowerCase() === clean
+    );
     const targetId = target ? target.userId : clean;
-    const targetName = target ? target.userName : `User #${clean}`;
+    const targetName = target ? target.userName : `@${clean}`;
     onStartCall(targetId, targetName);
-    setDialPin('');
+    setDialTarget('');
   };
 
   return (
-    <div className="telemetry-main">
+    <div className="telemetry-main-dark">
       {/* ── Top Header Bar ── */}
-      <header className="telemetry-header">
-        <div className="header-title-wrap">
-          <h1>Voice Engine Overview</h1>
-          <p>
-            Terminal #{currentUser.id} · Intelligent Real-Time Noise Suppression &amp; WebRTC Telecom
-          </p>
+      <header className="dark-dashboard-header">
+        <div className="header-brand-wrap">
+          <h1>Voice Operations Dashboard</h1>
+          <p>Real-Time Spectral Subtraction &amp; WebRTC Telemetry</p>
         </div>
 
-        <div className="header-actions">
-          <div className="header-clock">
-            <div className="clock-time">{currentDate} {currentTime}</div>
-            <div className="clock-meta">DSP Sample Rate: 48.0 kHz · WebRTC Opus</div>
+        <div className="header-actions-dark">
+          <div className="header-clock-dark">
+            <div className="clock-time-dark">{currentTime}</div>
+            <div className="clock-meta-dark">{currentDate}</div>
           </div>
 
-          {callState === 'connected' ? (
-            <button className="header-status-btn" onClick={onHangup} style={{ background: '#fee2e2', color: '#dc2626' }}>
-              🔴 END CALL
-            </button>
-          ) : isAudioRunning ? (
-            <button className="header-status-btn green" onClick={onStopAudio}>
-              ● SYSTEM OPERATIONAL
-            </button>
-          ) : (
-            <button className="header-status-btn" onClick={onStartAudio}>
-              ⚡ START AUDIO ENGINE
-            </button>
-          )}
+          <button
+            className={`audio-engine-toggle-btn ${isAudioRunning ? 'active' : ''}`}
+            onClick={isAudioRunning ? onStopAudio : onStartAudio}
+          >
+            <span className="btn-indicator-dot" />
+            {isAudioRunning ? 'DSP Active' : 'Start Mic DSP'}
+          </button>
         </div>
       </header>
 
-      {/* ── 6 Metric Cards Row ── */}
-      <section className="telemetry-cards-grid">
-        {/* Card 1: Noise Level */}
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span className="metric-card-title">Noise Floor</span>
-            <div className="metric-card-icon-wrap icon-pink">🌡️</div>
+      {/* ── Metric Cards Row (Removed AI Suppression, Peak Health & System Status info) ── */}
+      <section className="dark-metric-cards-grid">
+        {/* Card 1: Noise Floor */}
+        <div className="dark-metric-card">
+          <div className="metric-header-dark">
+            <span className="metric-title-dark">Ambient Noise Floor</span>
+            <span className="metric-icon-dark">🎙️</span>
           </div>
-          <div className="metric-card-value">{inputDb} <span style={{ fontSize: 14 }}>dB</span></div>
-          <div className="metric-card-footer">
-            <span className="metric-tag tag-normal">● Normal</span>
-            <span className="metric-limit-text">Threshold -20 dB</span>
+          <div className="metric-value-dark">
+            {inputDb} <span className="metric-unit-dark">dB</span>
           </div>
-        </div>
-
-        {/* Card 2: AI Suppression */}
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span className="metric-card-title">AI Suppression</span>
-            <div className="metric-card-icon-wrap icon-blue">💧</div>
-          </div>
-          <div className="metric-card-value">{Math.round(suppression * 100)} <span style={{ fontSize: 14 }}>%</span></div>
-          <div className="metric-card-footer">
-            <span className="metric-tag tag-normal">● Active</span>
-            <span className="metric-limit-text">Spectral Subtraction</span>
+          <div className="metric-footer-dark">
+            <span className="metric-pill-green">● Clean</span>
+            <span className="metric-subtext-dark">Threshold: -30 dB</span>
           </div>
         </div>
 
-        {/* Card 3: Input RMS */}
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span className="metric-card-title">Input Signal</span>
-            <div className="metric-card-icon-wrap icon-emerald">☁️</div>
+        {/* Card 2: Input Signal RMS */}
+        <div className="dark-metric-card">
+          <div className="metric-header-dark">
+            <span className="metric-title-dark">Mic Input Energy</span>
+            <span className="metric-icon-dark">📊</span>
           </div>
-          <div className="metric-card-value">{inputRms} <span style={{ fontSize: 14 }}>%</span></div>
-          <div className="metric-card-footer">
-            <span className="metric-tag tag-normal">● Normal</span>
-            <span className="metric-limit-text">Limit 85%</span>
+          <div className="metric-value-dark">
+            {inputRms} <span className="metric-unit-dark">%</span>
           </div>
-        </div>
-
-        {/* Card 4: Audio Latency */}
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span className="metric-card-title">Audio Latency</span>
-            <div className="metric-card-icon-wrap icon-orange">⏱️</div>
-          </div>
-          <div className="metric-card-value">{rtt} <span style={{ fontSize: 14 }}>ms</span></div>
-          <div className="metric-card-footer">
-            <span className="metric-tag tag-normal">● Ultra-Low</span>
-            <span className="metric-limit-text">Limit ±50 ms</span>
+          <div className="metric-footer-dark">
+            <span className="metric-pill-green">● Optimal</span>
+            <span className="metric-subtext-dark">Float32 48kHz</span>
           </div>
         </div>
 
-        {/* Card 5: Packet Loss */}
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span className="metric-card-title">Packet Health</span>
-            <div className="metric-card-icon-wrap icon-purple">📶</div>
+        {/* Card 3: Audio Latency */}
+        <div className="dark-metric-card">
+          <div className="metric-header-dark">
+            <span className="metric-title-dark">Audio Latency (RTT)</span>
+            <span className="metric-icon-dark">⚡</span>
           </div>
-          <div className="metric-card-value">{packetLoss} <span style={{ fontSize: 14 }}>%</span></div>
-          <div className="metric-card-footer">
-            <span className="metric-tag tag-normal">● Stable</span>
-            <span className="metric-limit-text">Opus 48kHz</span>
+          <div className="metric-value-dark">
+            {rtt} <span className="metric-unit-dark">ms</span>
           </div>
-        </div>
-
-        {/* Card 6: Health / State */}
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span className="metric-card-title">System Status</span>
-            <div className="metric-card-icon-wrap icon-red">🛡️</div>
-          </div>
-          <div className="metric-card-value" style={{ textTransform: 'capitalize' }}>
-            {callState === 'connected' ? 'In Call' : isAudioRunning ? 'Ready' : 'Standby'}
-          </div>
-          <div className="metric-card-footer">
-            <span className="metric-tag tag-normal">● {otherUsers.length} Online</span>
-            <span className="metric-limit-text">P2P Mesh</span>
+          <div className="metric-footer-dark">
+            <span className="metric-pill-green">● Ultra-Low</span>
+            <span className="metric-subtext-dark">Opus WebRTC</span>
           </div>
         </div>
       </section>
 
-      {/* ── Main Content: Trends + Voice Terminal ── */}
-      <div className="telemetry-content-layout">
-        {/* Left Trends Panel (70%) */}
-        <section className="trends-panel">
-          <div className="trends-header">
-            <h2>Audio &amp; DSP Telemetry Trends</h2>
-            <div className="time-filter-pills">
-              <button
-                className={`time-pill-btn ${timeFilter === '15m' ? 'active' : ''}`}
-                onClick={() => setTimeFilter('15m')}
-              >
-                15 min
-              </button>
-              <button
-                className={`time-pill-btn ${timeFilter === '1h' ? 'active' : ''}`}
-                onClick={() => setTimeFilter('1h')}
-              >
-                1 hour
-              </button>
-              <button
-                className={`time-pill-btn ${timeFilter === '6h' ? 'active' : ''}`}
-                onClick={() => setTimeFilter('6h')}
-              >
-                6 hours
-              </button>
-              <button
-                className={`time-pill-btn ${timeFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setTimeFilter('all')}
-              >
-                All
-              </button>
+      {/* ── Main Layout: Visualizer & Voice Terminal ── */}
+      <div className="dark-content-split">
+        {/* Left Column: Sound Waveform Visualizer (Exact Image 1) */}
+        <section className="dark-visualizer-section">
+          <div className="section-title-bar">
+            <div>
+              <h2>Live Audio Equalizer Spectrum</h2>
+              <p>Real-time symmetric voice frequencies &amp; noise gated output</p>
             </div>
+            <span className="live-status-tag">
+              {isAudioRunning ? '● LIVE AUDIO' : '○ STANDBY'}
+            </span>
           </div>
 
-          <div className="trends-charts-grid">
-            {/* Chart 1: Raw Microphone Waveform */}
-            <div className="trend-chart-box">
-              <div className="chart-box-title">
-                <span>Raw Input Waveform</span>
-                <span style={{ fontSize: 11, color: '#38bdf8' }}>CH-1 RAW</span>
-              </div>
-              <div className="chart-canvas-wrap">
-                <canvas ref={originalCanvasRef} width={400} height={140} style={{ width: '100%', height: '100%' }} />
-              </div>
-            </div>
+          {/* Soundwave Bar Visualizer matching Image 1 */}
+          <div className="waveform-container-dark">
+            <SoundWaveVisualizer
+              analyser={analysers.enhanced || analysers.original}
+              isActive={isAudioRunning}
+              barColor="#ffffff"
+              bgColor="#06101e"
+              barCount={64}
+              height={220}
+            />
+          </div>
 
-            {/* Chart 2: Enhanced Output Waveform */}
-            <div className="trend-chart-box">
-              <div className="chart-box-title">
-                <span>Enhanced Waveform (Post-DSP)</span>
-                <span style={{ fontSize: 11, color: '#10b981' }}>CH-2 CLEAN</span>
-              </div>
-              <div className="chart-canvas-wrap">
-                <canvas ref={enhancedCanvasRef} width={400} height={140} style={{ width: '100%', height: '100%' }} />
-              </div>
+          {/* Sound Control Slider */}
+          <div className="dsp-intensity-card">
+            <div className="intensity-labels">
+              <span>Noise Reduction Intensity</span>
+              <strong>{Math.round(suppression * 100)}%</strong>
             </div>
-
-            {/* Chart 3: Real-time FFT Frequency Spectrum */}
-            <div className="trend-chart-box">
-              <div className="chart-box-title">
-                <span>Frequency Spectrum Analyzer (FFT)</span>
-                <span style={{ fontSize: 11, color: '#f59e0b' }}>0 - 24 kHz</span>
-              </div>
-              <div className="chart-canvas-wrap">
-                <canvas ref={spectrumCanvasRef} width={400} height={140} style={{ width: '100%', height: '100%' }} />
-              </div>
-            </div>
-
-            {/* Chart 4: Noise Suppression Level Control */}
-            <div className="trend-chart-box">
-              <div className="chart-box-title">
-                <span>Noise Suppression Intensity</span>
-                <span style={{ fontSize: 11, color: '#8b5cf6', fontWeight: 700 }}>{Math.round(suppression * 100)}%</span>
-              </div>
-              <div
-                style={{
-                  padding: 16,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  gap: 12,
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 6,
-                  height: 140,
-                  boxSizing: 'border-box',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: 12 }}>
-                  <span>Low (Transparent)</span>
-                  <span style={{ color: '#059669', fontWeight: 700 }}>Optimal (85%)</span>
-                  <span>Maximum (Aggressive)</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={suppression}
-                  onChange={(e) => onSuppressionChange(parseFloat(e.target.value))}
-                  style={{ width: '100%', accentColor: '#2563eb', cursor: 'pointer' }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: 11 }}>
-                  <span>Filter: Spectral Gating</span>
-                  <span>Buffer: 128 samples</span>
-                </div>
-              </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={suppression}
+              onChange={(e) => onSuppressionChange(parseFloat(e.target.value))}
+              className="dsp-slider-input"
+            />
+            <div className="intensity-markers">
+              <span>Transparent</span>
+              <span style={{ color: '#00a884', fontWeight: 600 }}>Recommended (85%)</span>
+              <span>Max Isolation</span>
             </div>
           </div>
         </section>
 
-        {/* Right Terminal Panel (30%) */}
-        <aside className="terminal-panel">
-          {/* Quick Call Dial Terminal */}
-          <div className="terminal-card">
+        {/* Right Column: Voice Terminal / Quick Dial */}
+        <aside className="dark-terminal-section">
+          {/* Quick Call by Username */}
+          <div className="terminal-card-dark">
             <div className="terminal-card-header">
-              <h3>Voice Terminal · Quick Call</h3>
-              <span style={{ fontSize: 12, color: '#10b981', fontWeight: 700 }}>Your PIN: #{currentUser.id}</span>
+              <h3>Voice Terminal · Dial Peer</h3>
+              <span className="pin-highlight">@{currentUser.username || currentUser.id}</span>
             </div>
 
-            <form onSubmit={handleDial} className="pin-dial-box">
-              <input
-                type="text"
-                className="pin-dial-input"
-                placeholder="Enter Peer PIN (e.g. 1042)"
-                value={dialPin}
-                onChange={(e) => setDialPin(e.target.value)}
-              />
-              <button type="submit" className="pin-call-btn" disabled={!dialPin.trim()}>
-                📞 CALL PEER NOW
+            <form onSubmit={handleDial} className="dial-form-dark">
+              <div className="dial-input-wrap">
+                <span>@</span>
+                <input
+                  type="text"
+                  placeholder="Enter username (e.g. sribalaji)"
+                  value={dialTarget}
+                  onChange={(e) => setDialTarget(e.target.value.toLowerCase())}
+                />
+              </div>
+              <button type="submit" className="dial-call-btn" disabled={!dialTarget.trim()}>
+                📞 CALL USER
               </button>
             </form>
           </div>
 
           {/* Online Peers List */}
-          <div className="terminal-card">
+          <div className="terminal-card-dark">
             <div className="terminal-card-header">
-              <h3>Online Peers ({otherUsers.length})</h3>
-              <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>● Live</span>
+              <h3>Online Peers</h3>
+              <span className="live-count-badge">{otherUsers.length} Online</span>
             </div>
 
             {otherUsers.length === 0 ? (
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: '8px 0' }}>
-                No other peers currently online. Give your PIN (#{currentUser.id}) to a friend to connect.
+              <p className="no-peers-msg">
+                No peers online. Share your username <strong>@{currentUser.username || currentUser.id}</strong> to connect!
               </p>
             ) : (
-              <div className="terminal-peers-list">
+              <div className="peers-scroll-list">
                 {otherUsers.map((user) => (
-                  <div key={user.userId} className="terminal-peer-item">
-                    <div className="peer-name-wrap">
-                      <div className="peer-avatar-circle">{user.userName.slice(0, 2).toUpperCase()}</div>
-                      <div className="peer-info-text">
-                        <strong>{user.userName}</strong>
-                        <span>#{user.userId}</span>
+                  <div key={user.userId} className="peer-item-row">
+                    <div className="peer-left-meta">
+                      <div className="peer-circle-avatar">
+                        {user.userName.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="peer-text-meta">
+                        <span className="peer-name">{user.userName}</span>
+                        <span className="peer-id">@{user.userId}</span>
                       </div>
                     </div>
+
                     <button
-                      className="peer-call-mini-btn"
+                      className="peer-call-mini"
                       onClick={() => onStartCall(user.userId, user.userName)}
+                      title={`Call @${user.userId}`}
                     >
                       CALL
                     </button>
@@ -491,52 +268,17 @@ export default function DashboardView({
             )}
           </div>
 
-          {/* Telemetry & Link Status */}
-          <div className="terminal-card">
-            <div className="terminal-card-header">
-              <h3>System &amp; WebRTC Telemetry</h3>
-              <span style={{ fontSize: 11, color: '#2563eb', fontWeight: 700 }}>ACTIVE</span>
-            </div>
-            <div className="terminal-telemetry-specs">
-              <div className="spec-row">
-                <span>Signaling Gateway</span>
-                <strong style={{ color: '#10b981' }}>Connected</strong>
-              </div>
-              <div className="spec-row">
-                <span>Call State</span>
-                <strong style={{ textTransform: 'uppercase' }}>{callState}</strong>
-              </div>
-              <div className="spec-row">
-                <span>ICE Candidate Path</span>
-                <strong>STUN / Google Relay</strong>
-              </div>
-              <div className="spec-row">
-                <span>Audio Engine DSP</span>
-                <strong style={{ color: '#2563eb' }}>48 kHz Float32</strong>
-              </div>
-            </div>
-          </div>
-
           {/* Recent Activity */}
           {recentCalls.length > 0 && (
-            <div className="terminal-card">
+            <div className="terminal-card-dark">
               <div className="terminal-card-header">
-                <h3>Recent Activity</h3>
+                <h3>Recent Calls</h3>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="recent-calls-list">
                 {recentCalls.map((c) => (
-                  <div
-                    key={c.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: 11,
-                      padding: '4px 0',
-                      borderBottom: '1px solid #f1f5f9',
-                    }}
-                  >
-                    <span style={{ color: '#334155', fontWeight: 600 }}>Peer #{c.roomCode}</span>
-                    <span style={{ color: '#94a3b8' }}>{c.durationSec ? `${c.durationSec}s` : 'Call'}</span>
+                  <div key={c.id} className="recent-call-row">
+                    <span>@{c.roomCode}</span>
+                    <span className="recent-time">{c.durationSec ? `${c.durationSec}s` : 'Call'}</span>
                   </div>
                 ))}
               </div>
@@ -544,16 +286,6 @@ export default function DashboardView({
           )}
         </aside>
       </div>
-
-      {/* ── Bottom Telemetry Footer Bar ── */}
-      <footer className="telemetry-footer-bar">
-        <div>
-          Source: WebRTC ICE Host · Node: <code>{window.location.hostname}</code> · Buffer: 128 samples
-        </div>
-        <div>
-          DSP Engine: Worklet Active · Codec: Opus/48000/2 · Polling: 2s
-        </div>
-      </footer>
     </div>
   );
 }
