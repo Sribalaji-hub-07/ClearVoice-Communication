@@ -66,13 +66,13 @@ export default function App() {
 
   // Socket.IO Connection
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser?.id && currentUser?.name) {
       socketService.connectSocket(currentUser.id, currentUser.name);
     }
     return () => {
       socketService.disconnectSocket();
     };
-  }, [currentUser]);
+  }, [currentUser?.id, currentUser?.name]);
 
   const call = useCall(currentUser?.id || '', currentUser?.name || '');
 
@@ -310,18 +310,56 @@ export default function App() {
 
   // --- Call Management ---
 
+  const getAudioStreamForCall = async (): Promise<MediaStream | null> => {
+    // 1. Try to start the enhanced AudioEngine stream
+    try {
+      const ready = await ensureProcessingRunning();
+      if (ready && engineRef.current?.callStream) {
+        return engineRef.current.callStream;
+      }
+    } catch (e) {
+      console.warn('[AUDIO] AudioEngine could not be initialized, falling back to direct microphone stream:', e);
+    }
+
+    // 2. Direct fallback microphone stream with standard WebRTC DSP
+    try {
+      console.log('[AUDIO] Requesting direct microphone stream fallback...');
+      const fallbackStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      setMicPermission('granted');
+      return fallbackStream;
+    } catch (err) {
+      console.error('[AUDIO] Direct microphone access failed:', err);
+      setMicPermission('denied');
+      setError('Microphone permission is required to make or receive calls.');
+      return null;
+    }
+  };
+
   const handleStartCall = async (receiverId: string, receiverName: string) => {
     setActiveTab('calls');
-    const ready = await ensureProcessingRunning();
-    if (!ready || !engineRef.current?.callStream) return;
-    call.startCall(receiverId, receiverName, engineRef.current.callStream);
+    const stream = await getAudioStreamForCall();
+    if (!stream) {
+      alert('Microphone access is required to place calls. Please allow microphone permissions in your browser.');
+      return;
+    }
+    call.startCall(receiverId, receiverName, stream);
   };
 
   const handleAcceptCall = async () => {
     setActiveTab('calls');
-    const ready = await ensureProcessingRunning();
-    if (!ready || !engineRef.current?.callStream) return;
-    call.acceptCall(engineRef.current.callStream);
+    const stream = await getAudioStreamForCall();
+    if (!stream) {
+      alert('Microphone access is required to accept this call.');
+      call.rejectCall('Microphone not available');
+      return;
+    }
+    call.acceptCall(stream);
   };
 
   const handleLogout = () => {

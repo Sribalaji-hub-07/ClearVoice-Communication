@@ -35,14 +35,48 @@ const onlineUsers = new Map<string, { userId: string; userName: string }>();
 // Map<callId, {callerId, receiverId}>
 const activeCalls = new Map<string, { callerId: string; receiverId: string }>();
 
-function findSocketIdByUserId(userId: string): string | undefined {
-  const normalized = String(userId).trim().replace(/^#/, '');
+function findTargetSockets(target: string): string[] {
+  const clean = String(target).trim().replace(/^#/, '').toLowerCase();
+  const socketIds = new Set<string>();
+
   for (const [socketId, user] of onlineUsers.entries()) {
-    if (user.userId === normalized || user.userId === userId) {
-      return socketId;
+    if (user.userId.toLowerCase() === clean || user.userName.toLowerCase() === clean) {
+      socketIds.add(socketId);
     }
   }
-  return undefined;
+  return Array.from(socketIds);
+}
+
+function resolveTargetRooms(target: string): string[] {
+  const clean = String(target).trim().replace(/^#/, '').toLowerCase();
+  const rooms = new Set<string>();
+  rooms.add(`uid_${clean}`);
+  rooms.add(`uname_${clean}`);
+
+  for (const user of onlineUsers.values()) {
+    if (user.userId.toLowerCase() === clean || user.userName.toLowerCase() === clean) {
+      rooms.add(`uid_${user.userId}`);
+      rooms.add(`uname_${user.userName.toLowerCase()}`);
+    }
+  }
+  return Array.from(rooms);
+}
+
+function emitToTarget(target: string, event: string, payload: any): boolean {
+  const socketIds = findTargetSockets(target);
+  const rooms = resolveTargetRooms(target);
+
+  if (socketIds.length === 0 && rooms.length === 0) {
+    return false;
+  }
+
+  for (const sid of socketIds) {
+    io.to(sid).emit(event, payload);
+  }
+  for (const room of rooms) {
+    io.to(room).emit(event, payload);
+  }
+  return true;
 }
 
 function getUniqueOnlineUsers() {
@@ -68,12 +102,23 @@ io.on('connection', (socket) => {
     return;
   }
 
+  // Purge any stale/older sockets for this same userId to prevent routing to dead sockets
+  for (const [sId, u] of onlineUsers.entries()) {
+    if (u.userId === userId && sId !== socket.id) {
+      console.log(`[SERVER] Cleaning up stale socket ${sId} for user ${userId}`);
+      onlineUsers.delete(sId);
+    }
+  }
+
   console.log(`[SERVER] User connected: ${userName} (${userId}) on socket ${socket.id}`);
   
   onlineUsers.set(socket.id, { userId, userName });
 
-  socket.broadcast.emit('user-online', { userId, userName, socketId: socket.id });
+  // Join persistent room channels for resilient multi-device / multi-tab routing
+  socket.join(`uid_${userId}`);
+  socket.join(`uname_${userName.trim().toLowerCase()}`);
 
+  socket.broadcast.emit('user-online', { userId, userName, socketId: socket.id });
   socket.emit('online-users', getUniqueOnlineUsers());
 
   socket.on('get-online-users', () => {
@@ -115,21 +160,22 @@ io.on('connection', (socket) => {
   });
 
   socket.on('call-user', (data: { callId: string; callerId: string; callerName: string; receiverId: string }) => {
-    const targetReceiverId = String(data.receiverId).trim().replace(/^#/, '');
+    const rawReceiver = String(data.receiverId).trim();
+    const cleanReceiver = rawReceiver.replace(/^#/, '');
     const cleanCallerId = String(data.callerId).trim().replace(/^#/, '');
-    console.log(`[SIGNAL] call-user: ${data.callerName} (${cleanCallerId}) calling target: ${targetReceiverId}`);
-    const receiverSocketId = findSocketIdByUserId(targetReceiverId);
+    console.log(`[SIGNAL] call-user: ${data.callerName} (${cleanCallerId}) calling target: ${cleanReceiver}`);
 
-    if (!receiverSocketId) {
-      console.log(`[SIGNAL] call-error: Receiver #${targetReceiverId} is offline. Online list:`, Array.from(onlineUsers.values()));
-      socket.emit('call-error', { message: `User #${targetReceiverId} is currently offline.` });
+    const targetSockets = findTargetSockets(cleanReceiver);
+    if (targetSockets.length === 0) {
+      console.log(`[SIGNAL] call-error: Receiver #${cleanReceiver} is offline. Online list:`, Array.from(onlineUsers.values()));
+      socket.emit('call-error', { message: `User #${cleanReceiver} is currently offline.` });
       return;
     }
 
-    activeCalls.set(data.callId, { callerId: cleanCallerId, receiverId: targetReceiverId });
+    activeCalls.set(data.callId, { callerId: cleanCallerId, receiverId: cleanReceiver });
 
-    console.log(`[SIGNAL] Routing incoming-call to socket ${receiverSocketId} for user ${targetReceiverId}`);
-    io.to(receiverSocketId).emit('incoming-call', {
+    console.log(`[SIGNAL] Routing incoming-call to target ${cleanReceiver} (sockets: ${targetSockets.join(', ')})`);
+    emitToTarget(cleanReceiver, 'incoming-call', {
       callId: data.callId,
       callerId: cleanCallerId,
       callerName: data.callerName
@@ -138,56 +184,37 @@ io.on('connection', (socket) => {
 
   socket.on('call-accepted', (data: { callId: string; callerId: string; receiverId: string; receiverName: string }) => {
     console.log(`[SIGNAL] call-accepted: ${data.receiverName} accepted call from ${data.callerId}`);
-    const callerSocketId = findSocketIdByUserId(data.callerId);
-    if (callerSocketId) {
-      io.to(callerSocketId).emit('call-accepted', data);
-    }
+    emitToTarget(data.callerId, 'call-accepted', data);
   });
 
   socket.on('call-rejected', (data: { callId: string; callerId?: string; receiverId: string; reason?: string }) => {
     console.log(`[SIGNAL] call-rejected: Call ${data.callId} rejected by ${data.receiverId}`);
-    // callerId may not be in payload; look it up from activeCalls
     const callRecord = activeCalls.get(data.callId);
     const callerId = data.callerId || callRecord?.callerId;
     if (callerId) {
-      const callerSocketId = findSocketIdByUserId(callerId);
-      if (callerSocketId) {
-        io.to(callerSocketId).emit('call-rejected', data);
-      }
+      emitToTarget(callerId, 'call-rejected', data);
     }
     activeCalls.delete(data.callId);
   });
 
   socket.on('offer', (data: { callId: string; targetId: string; fromUserId: string; offer: any }) => {
     console.log(`[SIGNAL] offer: from ${data.fromUserId} to ${data.targetId}`);
-    const targetSocketId = findSocketIdByUserId(data.targetId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('offer', data);
-    }
+    emitToTarget(data.targetId, 'offer', data);
   });
 
   socket.on('answer', (data: { callId: string; targetId: string; fromUserId: string; answer: any }) => {
     console.log(`[SIGNAL] answer: from ${data.fromUserId} to ${data.targetId}`);
-    const targetSocketId = findSocketIdByUserId(data.targetId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('answer', data);
-    }
+    emitToTarget(data.targetId, 'answer', data);
   });
 
   socket.on('ice-candidate', (data: { callId: string; targetId: string; fromUserId: string; candidate: any }) => {
     console.log(`[SIGNAL] ice-candidate: from ${data.fromUserId} to ${data.targetId}`);
-    const targetSocketId = findSocketIdByUserId(data.targetId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('ice-candidate', data);
-    }
+    emitToTarget(data.targetId, 'ice-candidate', data);
   });
 
   socket.on('end-call', (data: { callId: string; fromUserId: string; targetId: string; reason?: string }) => {
     console.log(`[SIGNAL] end-call: Call ${data.callId} ended by ${data.fromUserId}`);
-    const targetSocketId = findSocketIdByUserId(data.targetId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('call-ended', { callId: data.callId, reason: data.reason });
-    }
+    emitToTarget(data.targetId, 'call-ended', { callId: data.callId, reason: data.reason });
     activeCalls.delete(data.callId);
   });
 
@@ -204,10 +231,7 @@ io.on('connection', (socket) => {
     for (const [callId, call] of activeCalls.entries()) {
       if (call.callerId === userId || call.receiverId === userId) {
         const otherPartyId = call.callerId === userId ? call.receiverId : call.callerId;
-        const otherPartySocketId = findSocketIdByUserId(otherPartyId);
-        if (otherPartySocketId) {
-          io.to(otherPartySocketId).emit('call-ended', { callId, reason: 'user-disconnected' });
-        }
+        emitToTarget(otherPartyId, 'call-ended', { callId, reason: 'user-disconnected' });
         activeCalls.delete(callId);
       }
     }

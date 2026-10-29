@@ -240,7 +240,9 @@ export default function DashboardView({
     const clean = dialPin.trim().replace(/^#/, '');
     if (!clean) return;
     const target = otherUsers.find((u) => u.userId === clean || u.userName.toLowerCase() === clean.toLowerCase());
-    onStartCall(clean, target?.userName || `User #${clean}`);
+    const targetId = target ? target.userId : clean;
+    const targetName = target ? target.userName : `User #${clean}`;
+    onStartCall(targetId, targetName);
     setDialPin('');
   };
 

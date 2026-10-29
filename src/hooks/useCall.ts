@@ -70,9 +70,14 @@ export function useCall(userId: string, userName: string): UseCallResult {
   // ── Socket event listeners — registered ONCE, use refs for latest state ──
   useEffect(() => {
     socketService.onIncomingCall((data) => {
-      if (callStateRef.current !== 'idle') {
+      console.log('[CALL] onIncomingCall received:', data);
+      if (callStateRef.current !== 'idle' && callStateRef.current !== 'ended') {
+        console.log('[CALL] Currently busy in state:', callStateRef.current);
         socketService.emitCallRejected({ callId: data.callId, receiverId: userId, reason: 'busy' });
         return;
+      }
+      if (callStateRef.current === 'ended') {
+        handleCleanup();
       }
       const info: CallInfo = {
         callId: data.callId,
@@ -176,7 +181,12 @@ export function useCall(userId: string, userName: string): UseCallResult {
 
   const initWebRTC = useCallback((stream: MediaStream, currentCallInfo: CallInfo) => {
     const cm = new WebRTCCallManager({
-      onStateChange: (s) => setCallStateWithRef(s),
+      onStateChange: (s) => {
+        setCallStateWithRef(s);
+        if (s === 'ended') {
+          setTimeout(() => handleCleanup(), 600);
+        }
+      },
       onRemoteStream: () => {},
       onStats: (stats, quality) => {
         setCallStats(stats);
