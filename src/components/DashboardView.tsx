@@ -277,24 +277,6 @@ export default function DashboardView({
         </div>
       </header>
 
-      {/* ── Dynamic Alert Banner (Matching TowerWatch Red Banner) ── */}
-      {callState === 'connected' ? (
-        <div className="telemetry-alert-banner" style={{ backgroundColor: '#10b981' }}>
-          <span className="alert-icon-flash">●</span>
-          CALL IN PROGRESS — WebRTC P2P direct audio stream active with AI noise cancellation
-        </div>
-      ) : inputDb > -20 && isAudioRunning ? (
-        <div className="telemetry-alert-banner">
-          <span className="alert-icon-flash">⚠️</span>
-          ALERT: High ambient noise detected ({inputDb} dB) — Neural DSP Spectral Filter engaged
-        </div>
-      ) : (
-        <div className="telemetry-alert-banner" style={{ backgroundColor: '#1e293b' }}>
-          <span>ℹ️</span>
-          TELECOM READY — Enter a peer PIN or select an online user from the terminal to connect
-        </div>
-      )}
-
       {/* ── 6 Metric Cards Row ── */}
       <section className="telemetry-cards-grid">
         {/* Card 1: Noise Level */}

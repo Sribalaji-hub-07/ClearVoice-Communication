@@ -22,6 +22,55 @@ const notifyOnlineUsersUpdate = () => {
   onlineUsersListeners.forEach((handler) => handler(onlineUsersCache));
 };
 
+// Event handler registry so listeners are NEVER lost if registered before socket connection
+interface SignalHandlers {
+  incomingCall?: (data: SignalIncomingCall) => void;
+  callAccepted?: (data: SignalCallAccepted) => void;
+  callRejected?: (data: SignalCallRejected) => void;
+  offer?: (data: SignalOffer) => void;
+  answer?: (data: SignalAnswer) => void;
+  iceCandidate?: (data: SignalIceCandidate) => void;
+  callEnded?: (data: SignalCallEnded) => void;
+  callError?: (data: { message: string }) => void;
+}
+
+const handlers: SignalHandlers = {};
+
+function attachAllHandlers(s: Socket) {
+  if (handlers.incomingCall) {
+    s.off('incoming-call');
+    s.on('incoming-call', handlers.incomingCall);
+  }
+  if (handlers.callAccepted) {
+    s.off('call-accepted');
+    s.on('call-accepted', handlers.callAccepted);
+  }
+  if (handlers.callRejected) {
+    s.off('call-rejected');
+    s.on('call-rejected', handlers.callRejected);
+  }
+  if (handlers.offer) {
+    s.off('offer');
+    s.on('offer', handlers.offer);
+  }
+  if (handlers.answer) {
+    s.off('answer');
+    s.on('answer', handlers.answer);
+  }
+  if (handlers.iceCandidate) {
+    s.off('ice-candidate');
+    s.on('ice-candidate', handlers.iceCandidate);
+  }
+  if (handlers.callEnded) {
+    s.off('call-ended');
+    s.on('call-ended', handlers.callEnded);
+  }
+  if (handlers.callError) {
+    s.off('call-error');
+    s.on('call-error', handlers.callError);
+  }
+}
+
 export const getSocket = (): Socket | null => {
   return socket;
 };
@@ -30,6 +79,7 @@ export const connectSocket = (userId: string, userName: string): Socket => {
   if (socket) {
     if (socket.connected) {
       console.log('[SIGNAL] Socket already connected');
+      attachAllHandlers(socket);
       return socket;
     }
     socket.disconnect();
@@ -46,8 +96,11 @@ export const connectSocket = (userId: string, userName: string): Socket => {
     auth: { userId: cleanUserId, userName },
   });
 
+  attachAllHandlers(socket);
+
   socket.on('connect', () => {
     console.log('[SIGNAL] Socket connected:', socket?.id);
+    if (socket) attachAllHandlers(socket);
     socket?.emit('get-online-users');
   });
 
@@ -98,12 +151,14 @@ export const requestOnlineUsers = (): void => {
 };
 
 export const onCallError = (handler: (data: { message: string }) => void): void => {
-  if (!socket) return;
-  socket.off('call-error');
-  socket.on('call-error', (data: { message: string }) => {
-    console.log('[SIGNAL] call-error', data);
-    handler(data);
-  });
+  handlers.callError = handler;
+  if (socket) {
+    socket.off('call-error');
+    socket.on('call-error', (data: { message: string }) => {
+      console.log('[SIGNAL] call-error', data);
+      handler(data);
+    });
+  }
 };
 
 export const disconnectSocket = (): void => {
@@ -123,71 +178,86 @@ export const getIceServers = (): any[] | undefined => {
 };
 
 export const isUserOnline = (userId: string): boolean => {
-  return onlineUsersCache.some((u) => u.userId === userId);
+  const cleanId = String(userId).trim().replace(/^#/, '');
+  return onlineUsersCache.some((u) => u.userId === cleanId || u.userId === userId);
 };
 
 // Event registration helpers
 export const onIncomingCall = (handler: (data: SignalIncomingCall) => void): void => {
-  if (!socket) return;
-  socket.off('incoming-call');
-  socket.on('incoming-call', (data: SignalIncomingCall) => {
-    console.log('[SIGNAL] incoming-call', data);
-    handler(data);
-  });
+  handlers.incomingCall = handler;
+  if (socket) {
+    socket.off('incoming-call');
+    socket.on('incoming-call', (data: SignalIncomingCall) => {
+      console.log('[SIGNAL] incoming-call', data);
+      handler(data);
+    });
+  }
 };
 
 export const onCallAccepted = (handler: (data: SignalCallAccepted) => void): void => {
-  if (!socket) return;
-  socket.off('call-accepted');
-  socket.on('call-accepted', (data: SignalCallAccepted) => {
-    console.log('[SIGNAL] call-accepted', data);
-    handler(data);
-  });
+  handlers.callAccepted = handler;
+  if (socket) {
+    socket.off('call-accepted');
+    socket.on('call-accepted', (data: SignalCallAccepted) => {
+      console.log('[SIGNAL] call-accepted', data);
+      handler(data);
+    });
+  }
 };
 
 export const onCallRejected = (handler: (data: SignalCallRejected) => void): void => {
-  if (!socket) return;
-  socket.off('call-rejected');
-  socket.on('call-rejected', (data: SignalCallRejected) => {
-    console.log('[SIGNAL] call-rejected', data);
-    handler(data);
-  });
+  handlers.callRejected = handler;
+  if (socket) {
+    socket.off('call-rejected');
+    socket.on('call-rejected', (data: SignalCallRejected) => {
+      console.log('[SIGNAL] call-rejected', data);
+      handler(data);
+    });
+  }
 };
 
 export const onOffer = (handler: (data: SignalOffer) => void): void => {
-  if (!socket) return;
-  socket.off('offer');
-  socket.on('offer', (data: SignalOffer) => {
-    console.log('[SIGNAL] offer', data);
-    handler(data);
-  });
+  handlers.offer = handler;
+  if (socket) {
+    socket.off('offer');
+    socket.on('offer', (data: SignalOffer) => {
+      console.log('[SIGNAL] offer', data);
+      handler(data);
+    });
+  }
 };
 
 export const onAnswer = (handler: (data: SignalAnswer) => void): void => {
-  if (!socket) return;
-  socket.off('answer');
-  socket.on('answer', (data: SignalAnswer) => {
-    console.log('[SIGNAL] answer', data);
-    handler(data);
-  });
+  handlers.answer = handler;
+  if (socket) {
+    socket.off('answer');
+    socket.on('answer', (data: SignalAnswer) => {
+      console.log('[SIGNAL] answer', data);
+      handler(data);
+    });
+  }
 };
 
 export const onIceCandidate = (handler: (data: SignalIceCandidate) => void): void => {
-  if (!socket) return;
-  socket.off('ice-candidate');
-  socket.on('ice-candidate', (data: SignalIceCandidate) => {
-    console.log('[SIGNAL] ice-candidate', data);
-    handler(data);
-  });
+  handlers.iceCandidate = handler;
+  if (socket) {
+    socket.off('ice-candidate');
+    socket.on('ice-candidate', (data: SignalIceCandidate) => {
+      console.log('[SIGNAL] ice-candidate', data);
+      handler(data);
+    });
+  }
 };
 
 export const onCallEnded = (handler: (data: SignalCallEnded) => void): void => {
-  if (!socket) return;
-  socket.off('call-ended');
-  socket.on('call-ended', (data: SignalCallEnded) => {
-    console.log('[SIGNAL] call-ended', data);
-    handler(data);
-  });
+  handlers.callEnded = handler;
+  if (socket) {
+    socket.off('call-ended');
+    socket.on('call-ended', (data: SignalCallEnded) => {
+      console.log('[SIGNAL] call-ended', data);
+      handler(data);
+    });
+  }
 };
 
 export const onOnlineUsersUpdate = (handler: (users: OnlineUser[]) => void): void => {
@@ -197,6 +267,14 @@ export const onOnlineUsersUpdate = (handler: (users: OnlineUser[]) => void): voi
 };
 
 export const removeAllCallListeners = (): void => {
+  delete handlers.incomingCall;
+  delete handlers.callAccepted;
+  delete handlers.callRejected;
+  delete handlers.offer;
+  delete handlers.answer;
+  delete handlers.iceCandidate;
+  delete handlers.callEnded;
+  delete handlers.callError;
   if (!socket) return;
   socket.off('incoming-call');
   socket.off('call-accepted');
@@ -205,48 +283,84 @@ export const removeAllCallListeners = (): void => {
   socket.off('answer');
   socket.off('ice-candidate');
   socket.off('call-ended');
+  socket.off('call-error');
   console.log('[SIGNAL] Removed all call listeners');
 };
 
-// Emit helpers
+// Emit helpers with ID sanitization
 export const emitCallUser = (data: SignalCallUser): void => {
   if (!socket) return;
-  console.log('[SIGNAL] emit call-user', data);
-  socket.emit('call-user', data);
+  const sanitized = {
+    ...data,
+    callerId: String(data.callerId).trim().replace(/^#/, ''),
+    receiverId: String(data.receiverId).trim().replace(/^#/, ''),
+  };
+  console.log('[SIGNAL] emit call-user', sanitized);
+  socket.emit('call-user', sanitized);
 };
 
 export const emitCallAccepted = (data: SignalCallAccepted): void => {
   if (!socket) return;
-  console.log('[SIGNAL] emit call-accepted', data);
-  socket.emit('call-accepted', data);
+  const sanitized = {
+    ...data,
+    callerId: String(data.callerId).trim().replace(/^#/, ''),
+    receiverId: String(data.receiverId).trim().replace(/^#/, ''),
+  };
+  console.log('[SIGNAL] emit call-accepted', sanitized);
+  socket.emit('call-accepted', sanitized);
 };
 
 export const emitCallRejected = (data: SignalCallRejected): void => {
   if (!socket) return;
-  console.log('[SIGNAL] emit call-rejected', data);
-  socket.emit('call-rejected', data);
+  const sanitized: SignalCallRejected = {
+    callId: data.callId,
+    receiverId: String(data.receiverId).trim().replace(/^#/, ''),
+    reason: data.reason,
+  };
+  console.log('[SIGNAL] emit call-rejected', sanitized);
+  socket.emit('call-rejected', sanitized);
 };
 
 export const emitOffer = (data: SignalOffer & { targetId: string }): void => {
   if (!socket) return;
-  console.log('[SIGNAL] emit offer', data);
-  socket.emit('offer', data);
+  const sanitized = {
+    ...data,
+    fromUserId: String(data.fromUserId).trim().replace(/^#/, ''),
+    targetId: String(data.targetId).trim().replace(/^#/, ''),
+  };
+  console.log('[SIGNAL] emit offer', sanitized);
+  socket.emit('offer', sanitized);
 };
 
 export const emitAnswer = (data: SignalAnswer & { targetId: string }): void => {
   if (!socket) return;
-  console.log('[SIGNAL] emit answer', data);
-  socket.emit('answer', data);
+  const sanitized = {
+    ...data,
+    fromUserId: String(data.fromUserId).trim().replace(/^#/, ''),
+    targetId: String(data.targetId).trim().replace(/^#/, ''),
+  };
+  console.log('[SIGNAL] emit answer', sanitized);
+  socket.emit('answer', sanitized);
 };
 
 export const emitIceCandidate = (data: SignalIceCandidate & { targetId: string }): void => {
   if (!socket) return;
-  console.log('[SIGNAL] emit ice-candidate', data);
-  socket.emit('ice-candidate', data);
+  const sanitized = {
+    ...data,
+    fromUserId: String(data.fromUserId).trim().replace(/^#/, ''),
+    targetId: String(data.targetId).trim().replace(/^#/, ''),
+  };
+  console.log('[SIGNAL] emit ice-candidate', sanitized);
+  socket.emit('ice-candidate', sanitized);
 };
 
 export const emitEndCall = (data: SignalEndCall & { targetId: string }): void => {
   if (!socket) return;
-  console.log('[SIGNAL] emit end-call', data);
-  socket.emit('end-call', data);
+  const sanitized = {
+    ...data,
+    fromUserId: String(data.fromUserId).trim().replace(/^#/, ''),
+    targetId: String(data.targetId).trim().replace(/^#/, ''),
+  };
+  console.log('[SIGNAL] emit end-call', sanitized);
+  socket.emit('end-call', sanitized);
 };

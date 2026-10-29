@@ -40,3 +40,6 @@ mingit.zip
 .env.*.local
 
 *.apk
+
+*.exe
+launcher/

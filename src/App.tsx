@@ -533,9 +533,9 @@ export default function App() {
       )}
 
       {/* Incoming Call Overlay */}
-      {call.callState === 'ringing' && call.callInfo?.receiverId === currentUser?.id && (
+      {call.callState === 'ringing' && call.callInfo && (
         <IncomingCall
-          callInfo={call.callInfo!}
+          callInfo={call.callInfo}
           onAccept={handleAcceptCall}
           onReject={call.rejectCall}
         />

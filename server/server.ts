@@ -116,20 +116,22 @@ io.on('connection', (socket) => {
 
   socket.on('call-user', (data: { callId: string; callerId: string; callerName: string; receiverId: string }) => {
     const targetReceiverId = String(data.receiverId).trim().replace(/^#/, '');
-    console.log(`[SIGNAL] call-user: ${data.callerName} calling target: ${targetReceiverId}`);
+    const cleanCallerId = String(data.callerId).trim().replace(/^#/, '');
+    console.log(`[SIGNAL] call-user: ${data.callerName} (${cleanCallerId}) calling target: ${targetReceiverId}`);
     const receiverSocketId = findSocketIdByUserId(targetReceiverId);
 
     if (!receiverSocketId) {
-      console.log(`[SIGNAL] call-error: Receiver #${targetReceiverId} is offline`);
+      console.log(`[SIGNAL] call-error: Receiver #${targetReceiverId} is offline. Online list:`, Array.from(onlineUsers.values()));
       socket.emit('call-error', { message: `User #${targetReceiverId} is currently offline.` });
       return;
     }
 
-    activeCalls.set(data.callId, { callerId: data.callerId, receiverId: targetReceiverId });
+    activeCalls.set(data.callId, { callerId: cleanCallerId, receiverId: targetReceiverId });
 
+    console.log(`[SIGNAL] Routing incoming-call to socket ${receiverSocketId} for user ${targetReceiverId}`);
     io.to(receiverSocketId).emit('incoming-call', {
       callId: data.callId,
-      callerId: data.callerId,
+      callerId: cleanCallerId,
       callerName: data.callerName
     });
   });
