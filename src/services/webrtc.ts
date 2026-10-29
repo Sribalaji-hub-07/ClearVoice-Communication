@@ -23,8 +23,31 @@ export class WebRTCCallManager {
   constructor(private callbacks: WebRTCCallbacks) {}
 
   public createPeerConnection(iceServers?: RTCIceServer[]): RTCPeerConnection {
+    const defaultServers: RTCIceServer[] = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      {
+        urls: 'turn:standard.relay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:standard.relay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:standard.relay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ];
+
     const config: RTCConfiguration = {
-      iceServers: iceServers || [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers: iceServers && iceServers.length > 0 ? iceServers : defaultServers,
+      iceCandidatePoolSize: 10,
     };
 
     console.log('[WEBRTC] Creating RTCPeerConnection with config', config);
@@ -39,15 +62,19 @@ export class WebRTCCallManager {
 
     this.pc.ontrack = (event) => {
       console.log('[AUDIO] Remote track received');
-      const remoteStream = event.streams[0];
+      const remoteStream = event.streams[0] || new MediaStream([event.track]);
       
       if (!this.remoteAudioElement) {
         this.remoteAudioElement = document.createElement('audio');
         this.remoteAudioElement.autoplay = true;
         this.remoteAudioElement.setAttribute('playsinline', 'true');
+        this.remoteAudioElement.style.display = 'none';
         document.body.appendChild(this.remoteAudioElement);
       }
       this.remoteAudioElement.srcObject = remoteStream;
+      this.remoteAudioElement.play().catch((err) => {
+        console.warn('[AUDIO] Autoplay blocked, will play on next user gesture:', err);
+      });
       
       this.callbacks.onRemoteStream(remoteStream);
     };

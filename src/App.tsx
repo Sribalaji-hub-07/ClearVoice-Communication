@@ -21,6 +21,9 @@ import ContactProfileModal from './components/ContactProfileModal';
 import SplashScreen from './components/SplashScreen';
 import IncomingCall from './components/IncomingCall';
 import MicPermissionModal from './components/MicPermissionModal';
+import Sidebar, { type DashboardTab } from './components/Sidebar';
+import DashboardView from './components/DashboardView';
+import type { OnlineUser } from './types/call';
 
 import { getCurrentUser, logoutUser, type UserProfile, type ContactInfo } from './utils/userAuth';
 import { getSettings, type AppSettings } from './utils/settingsStorage';
@@ -36,12 +39,30 @@ type AuthView = 'landing' | 'signup' | 'login';
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getCurrentUser());
   const [authView, setAuthView] = useState<AuthView>('landing');
-  const [activeTab, setActiveTab] = useState<TabType>('chats');
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [activeChatContact, setActiveChatContact] = useState<ContactInfo | null>(null);
   const [viewingContact, setViewingContact] = useState<ContactInfo | null>(null);
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
 
   const [settings, setSettings] = useState<AppSettings>(getSettings());
   const [suppression, setSuppression] = useState(settings.defaultSuppression);
+
+  // Sync online users list
+  useEffect(() => {
+    setOnlineUsers(socketService.getOnlineUsers());
+    socketService.requestOnlineUsers();
+
+    const handleUsersUpdate = (users: OnlineUser[]) => {
+      setOnlineUsers([...users]);
+    };
+
+    socketService.onOnlineUsersUpdate(handleUsersUpdate);
+    const syncInterval = setInterval(() => {
+      socketService.requestOnlineUsers();
+    }, 10000);
+
+    return () => clearInterval(syncInterval);
+  }, []);
 
   // Socket.IO Connection
   useEffect(() => {
@@ -353,145 +374,137 @@ export default function App() {
         />
       )}
 
-      {/* Top ClearVoice Neo-Brutalist Header Bar */}
+      {/* ── Main Telecom / TowerWatch Executive Layout ── */}
       {currentUser && (
-        <header className="app-header-bar">
-          <div className="header-brand-wrap">
-            <div className="header-brand-mark">CV</div>
-            <div className="header-brand-info">
-              <h1 className="header-brand-title">CLEARVOICE</h1>
-              <span className="header-brand-status">
-                <span className={`status-dot-sm ${isRunning ? 'live' : ''}`} />
-                {currentUser.name} (#{currentUser.id}) ·{' '}
-                {isP2PConnected ? (
-                  <span style={{ color: '#00F576' }}>P2P CONNECTED</span>
-                ) : (
-                  'CONNECTING…'
-                )}
-              </span>
-            </div>
-          </div>
+        <div className="telemetry-layout">
+          <Sidebar
+            currentUser={currentUser}
+            activeTab={activeTab as DashboardTab}
+            onSelectTab={(tab) => setActiveTab(tab)}
+            onlineCount={onlineUsers.filter((u) => u.userId !== currentUser.id).length}
+          />
 
-          <div className="header-actions">
-            {isRunning ? (
-              <button
-                className="header-pill-btn active"
-                onClick={handleStop}
-                title="Stop DSP Audio Processing"
-              >
-                STOP DSP ✕
-              </button>
-            ) : (
-              <button
-                className="header-pill-btn"
-                onClick={handleStart}
-                disabled={isStarting}
-                title="Start DSP Audio Processing"
-              >
-                {isStarting ? 'STARTING…' : 'START DSP ⚡'}
-              </button>
-            )}
-          </div>
-        </header>
-      )}
-
-      {/* Main Tab Views */}
-      {currentUser && (
-        <main className="app-content-body">
-          {activeTab === 'chats' && (
-            <ChatsTab
+          {activeTab === 'dashboard' && (
+            <DashboardView
               currentUser={currentUser}
-              activeContact={activeChatContact}
-              onSelectContact={setActiveChatContact}
-              onViewContactProfile={setViewingContact}
+              levels={levels}
+              analysers={analysers}
+              isAudioRunning={isRunning}
+              suppression={suppression}
+              onSuppressionChange={handleSuppressionChange}
+              onlineUsers={onlineUsers}
+              callState={call.callState}
+              callStats={call.callStats}
               onStartCall={handleStartCall}
-              chatPeer={chatPeer}
-              onlinePeers={onlinePeers}
-              p2pMsgTrigger={p2pMsgTrigger}
+              onHangup={call.endCall}
+              onViewContactProfile={setViewingContact}
+              onStartAudio={handleStart}
+              onStopAudio={handleStop}
             />
           )}
 
           {activeTab === 'calls' && (
-            <CallsTab
-              currentUser={currentUser}
-              canCall={micPermission !== 'denied'}
-              callState={call.callState}
-              levels={levels}
-              isAudioRunning={isRunning}
-              onStartCall={handleStartCall}
-              onHangup={call.endCall}
-              onViewContactProfile={setViewingContact}
-              error={error}
-            />
+            <main className="telemetry-main" style={{ padding: '24px' }}>
+              <CallsTab
+                currentUser={currentUser}
+                canCall={micPermission !== 'denied'}
+                callState={call.callState}
+                levels={levels}
+                isAudioRunning={isRunning}
+                onStartCall={handleStartCall}
+                onHangup={call.endCall}
+                onViewContactProfile={setViewingContact}
+                error={error}
+              />
+            </main>
+          )}
+
+          {activeTab === 'chats' && (
+            <main className="telemetry-main" style={{ padding: '24px' }}>
+              <ChatsTab
+                currentUser={currentUser}
+                activeContact={activeChatContact}
+                onSelectContact={setActiveChatContact}
+                onViewContactProfile={setViewingContact}
+                onStartCall={handleStartCall}
+                chatPeer={chatPeer}
+                onlinePeers={onlinePeers}
+                p2pMsgTrigger={p2pMsgTrigger}
+              />
+            </main>
           )}
 
           {activeTab === 'profile' && (
-            <ProfileTab
-              currentUser={currentUser}
-              settings={settings}
-              suppression={suppression}
-              onUpdateUser={setCurrentUser}
-              onSuppressionChange={handleSuppressionChange}
-              onSettingsChange={setSettings}
-              onLogout={handleLogout}
-            />
+            <main className="telemetry-main" style={{ padding: '24px' }}>
+              <ProfileTab
+                currentUser={currentUser}
+                settings={settings}
+                suppression={suppression}
+                onUpdateUser={setCurrentUser}
+                onSuppressionChange={handleSuppressionChange}
+                onSettingsChange={setSettings}
+                onLogout={handleLogout}
+              />
+            </main>
           )}
 
           {activeTab === 'lab' && (
-            <div className="tab-pane lab-tab">
-              <div className="lab-header-banner">
-                <span className="pill">CLEARVOICE DSP LABORATORY</span>
-                <h2>REAL-TIME SPECTRAL SUBTRACTION</h2>
-                <p>
-                  Inspect real-time FFT spectrograms, waveforms, noise estimators, and audio
-                  comparison monitors running inside the dedicated AudioWorklet.
-                </p>
-              </div>
-
-              <div className="dashboard-grid">
-                <div>
-                  <StatusPanel
-                    micPermission={micPermission}
-                    processingState={processingState}
-                    error={error}
-                    sampleRate={sampleRate}
-                    latencyMs={latencyMs}
-                  />
-                  <Controls
-                    isRunning={isRunning}
-                    isStarting={isStarting}
-                    suppression={suppression}
-                    onStart={handleStart}
-                    onStop={handleStop}
-                    onSuppressionChange={handleSuppressionChange}
-                    onResetNoiseProfile={handleResetNoiseProfile}
-                  />
-                  <LevelMeters levels={levels} suppression={suppression} />
+            <main className="telemetry-main" style={{ padding: '24px' }}>
+              <div className="tab-pane lab-tab">
+                <div className="lab-header-banner">
+                  <span className="pill">CLEARVOICE DSP LABORATORY</span>
+                  <h2>REAL-TIME SPECTRAL SUBTRACTION</h2>
+                  <p>
+                    Inspect real-time FFT spectrograms, waveforms, noise estimators, and audio
+                    comparison monitors running inside the dedicated AudioWorklet.
+                  </p>
                 </div>
 
-                <div>
-                  <VisualizerGrid
-                    originalAnalyser={analysers.original}
-                    enhancedAnalyser={analysers.enhanced}
-                    active={isRunning}
-                  />
-                  <ComparisonPanel
-                    mode={monitorMode}
-                    onChange={handleMonitorChange}
-                    disabled={!isRunning}
-                  />
-                  <RecordingPanel
-                    isRecording={isRecording}
-                    canRecord={isRunning}
-                    onStart={handleStartRecording}
-                    onStop={handleStopRecording}
-                    recordings={recordings}
-                  />
+                <div className="dashboard-grid">
+                  <div>
+                    <StatusPanel
+                      micPermission={micPermission}
+                      processingState={processingState}
+                      error={error}
+                      sampleRate={sampleRate}
+                      latencyMs={latencyMs}
+                    />
+                    <Controls
+                      isRunning={isRunning}
+                      isStarting={isStarting}
+                      suppression={suppression}
+                      onStart={handleStart}
+                      onStop={handleStop}
+                      onSuppressionChange={handleSuppressionChange}
+                      onResetNoiseProfile={handleResetNoiseProfile}
+                    />
+                    <LevelMeters levels={levels} suppression={suppression} />
+                  </div>
+
+                  <div>
+                    <VisualizerGrid
+                      originalAnalyser={analysers.original}
+                      enhancedAnalyser={analysers.enhanced}
+                      active={isRunning}
+                    />
+                    <ComparisonPanel
+                      mode={monitorMode}
+                      onChange={handleMonitorChange}
+                      disabled={!isRunning}
+                    />
+                    <RecordingPanel
+                      isRecording={isRecording}
+                      canRecord={isRunning}
+                      onStart={handleStartRecording}
+                      onStop={handleStopRecording}
+                      recordings={recordings}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            </main>
           )}
-        </main>
+        </div>
       )}
 
       {/* Bottom Navigation Bar */}

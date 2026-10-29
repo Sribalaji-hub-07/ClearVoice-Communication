@@ -1,4 +1,4 @@
-export type TabType = 'chats' | 'calls' | 'profile' | 'lab';
+export type TabType = 'dashboard' | 'chats' | 'calls' | 'profile' | 'lab';
 
 interface Props {
   activeTab: TabType;
@@ -18,6 +18,22 @@ export default function BottomNavBar({
   return (
     <nav className="bottom-nav-bar" aria-label="Main Navigation">
       <div className="bottom-nav-inner">
+        {/* Dashboard Tab */}
+        <button
+          className={`nav-tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+          onClick={() => onChangeTab('dashboard')}
+          aria-label="Dashboard"
+          aria-selected={activeTab === 'dashboard'}
+          role="tab"
+        >
+          <div className="nav-tab-icon-wrap">
+            <svg className="nav-tab-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />
+            </svg>
+          </div>
+          <span className="nav-tab-label">DASHBOARD</span>
+        </button>
+
         {/* Chats Tab */}
         <button
           className={`nav-tab-btn ${activeTab === 'chats' ? 'active' : ''}`}

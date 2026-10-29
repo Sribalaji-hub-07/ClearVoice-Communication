@@ -1,0 +1,687 @@
+/* ==========================================================================
+   CLEARVOICE TELEMETRY DASHBOARD - TOWERWATCH COMMAND CENTER THEME
+   Matches the exact executive telecom monitoring dashboard layout
+   ========================================================================== */
+
+:root {
+  --tw-sidebar-bg: #0d1527;
+  --tw-sidebar-border: #1e293b;
+  --tw-sidebar-text: #94a3b8;
+  --tw-sidebar-active: #1d4ed8;
+  --tw-sidebar-hover: #1e293b;
+  --tw-body-bg: #f8fafc;
+  --tw-card-bg: #ffffff;
+  --tw-border: #e2e8f0;
+  --tw-text-primary: #0f172a;
+  --tw-text-muted: #64748b;
+  --tw-alert-bg: #dc2626;
+  --tw-alert-text: #ffffff;
+  --tw-green: #10b981;
+  --tw-blue: #2563eb;
+  --tw-orange: #f59e0b;
+  --tw-red: #ef4444;
+  --tw-purple: #8b5cf6;
+  --tw-cyan: #06b6d4;
+  --tw-card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+}
+
+/* Base Layout Container */
+.telemetry-layout {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--tw-body-bg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--tw-text-primary);
+}
+
+/* --------------------------------------------------------------------------
+   LEFT SIDEBAR (TowerWatch Navy/Slate Style)
+   -------------------------------------------------------------------------- */
+.telemetry-sidebar {
+  width: 240px;
+  min-width: 240px;
+  background-color: var(--tw-sidebar-bg);
+  border-right: 1px solid var(--tw-sidebar-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  z-index: 50;
+  user-select: none;
+}
+
+.sidebar-header {
+  padding: 20px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-logo-icon {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, #1d4ed8, #06b6d4);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 18px;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.sidebar-brand-text h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+
+.sidebar-brand-text p {
+  font-size: 11px;
+  color: #64748b;
+  margin: 2px 0 0 0;
+}
+
+.sidebar-menu-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #475569;
+  padding: 18px 18px 8px 18px;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.sidebar-nav-item:hover {
+  background-color: var(--tw-sidebar-hover);
+  color: #f8fafc;
+}
+
+.sidebar-nav-item.active {
+  background-color: var(--tw-sidebar-active);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(29, 78, 216, 0.4);
+}
+
+.sidebar-nav-item .nav-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-item .nav-badge {
+  margin-left: auto;
+  background-color: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #10b981;
+}
+
+.status-dot-green {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.sidebar-device-info {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+   MAIN VIEW AREA
+   -------------------------------------------------------------------------- */
+.telemetry-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background-color: #f1f5f9;
+}
+
+/* Top Header Bar */
+.telemetry-header {
+  background-color: #ffffff;
+  border-bottom: 1px solid var(--tw-border);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-title-wrap h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.4px;
+}
+
+.header-title-wrap p {
+  font-size: 12px;
+  color: #64748b;
+  margin: 3px 0 0 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-clock {
+  text-align: right;
+  line-height: 1.2;
+}
+
+.clock-time {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  font-family: "Courier New", Courier, monospace;
+}
+
+.clock-meta {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.header-status-btn {
+  background-color: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.header-status-btn.green {
+  background-color: #dcfce7;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+.header-status-btn:hover {
+  filter: brightness(0.95);
+}
+
+/* Alert Banner */
+.telemetry-alert-banner {
+  background-color: #dc2626;
+  color: #ffffff;
+  padding: 10px 24px;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.2px;
+}
+
+.alert-icon-flash {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+/* --------------------------------------------------------------------------
+   METRIC CARDS ROW (6 Cards)
+   -------------------------------------------------------------------------- */
+.telemetry-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 14px;
+  padding: 20px 24px 10px 24px;
+}
+
+@media (max-width: 1400px) {
+  .telemetry-cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .telemetry-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.metric-card {
+  background-color: #ffffff;
+  border: 1px solid var(--tw-border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: var(--tw-card-shadow);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 120px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.metric-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metric-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: capitalize;
+}
+
+.metric-card-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.icon-pink { background-color: #fce7f3; color: #db2777; }
+.icon-blue { background-color: #dbeafe; color: #2563eb; }
+.icon-emerald { background-color: #d1fae5; color: #059669; }
+.icon-orange { background-color: #ffedd5; color: #ea580c; }
+.icon-purple { background-color: #ede9fe; color: #7c3aed; }
+.icon-red { background-color: #fee2e2; color: #dc2626; }
+
+.metric-card-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 6px 0;
+  letter-spacing: -0.5px;
+}
+
+.metric-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.metric-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.tag-normal {
+  background-color: #ecfdf5;
+  color: #059669;
+}
+
+.tag-alert {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+.tag-warn {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.metric-limit-text {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+/* --------------------------------------------------------------------------
+   DASHBOARD MAIN CONTENT: TRENDS + RIGHT PANEL
+   -------------------------------------------------------------------------- */
+.telemetry-content-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+  padding: 14px 24px 20px 24px;
+  flex: 1;
+}
+
+@media (max-width: 1200px) {
+  .telemetry-content-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Left Panel: Trends */
+.trends-panel {
+  background-color: #ffffff;
+  border: 1px solid var(--tw-border);
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow: var(--tw-card-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.trends-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 12px;
+}
+
+.trends-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.time-filter-pills {
+  display: flex;
+  background-color: #f1f5f9;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.time-pill-btn {
+  border: none;
+  background: transparent;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.time-pill-btn.active {
+  background-color: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+}
+
+.trends-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  flex: 1;
+}
+
+@media (max-width: 800px) {
+  .trends-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.trend-chart-box {
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  padding: 12px;
+  background-color: #fafbfc;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-box-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chart-canvas-wrap {
+  flex: 1;
+  min-height: 140px;
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #0d1527;
+}
+
+/* Right Panel: Voice Terminal / Structure */
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.terminal-card {
+  background-color: #ffffff;
+  border: 1px solid var(--tw-border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: var(--tw-card-shadow);
+}
+
+.terminal-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.terminal-card-header h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+/* 3D Audio Radar / Tower simulation */
+.radar-display-box {
+  height: 180px;
+  background: radial-gradient(circle at center, #1e293b 0%, #0d1527 100%);
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #1e293b;
+}
+
+.radar-telemetry-overlay {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #38bdf8;
+  font-family: "Courier New", Courier, monospace;
+}
+
+/* PIN Dial Box */
+.pin-dial-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.pin-dial-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-family: "Courier New", Courier, monospace;
+  font-weight: 700;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.pin-dial-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.pin-call-btn {
+  background-color: #2563eb;
+  color: #ffffff;
+  border: none;
+  padding: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.pin-call-btn:hover {
+  background-color: #1d4ed8;
+}
+
+/* Online Peers in Terminal */
+.terminal-peers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.terminal-peer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.peer-name-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.peer-avatar-circle {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background-color: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.peer-info-text strong {
+  font-size: 12px;
+  color: #0f172a;
+  display: block;
+}
+
+.peer-info-text span {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.peer-call-mini-btn {
+  background-color: #10b981;
+  color: #ffffff;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.peer-call-mini-btn:hover {
+  background-color: #059669;
+}
+
+/* Telemetry Footer */
+.telemetry-footer-bar {
+  background-color: #ffffff;
+  border-top: 1px solid var(--tw-border);
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: "Courier New", Courier, monospace;
+}
