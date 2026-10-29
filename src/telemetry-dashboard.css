@@ -4,11 +4,11 @@
    ========================================================================== */
 
 :root {
-  --tw-sidebar-bg: #0d1527;
-  --tw-sidebar-border: #1e293b;
-  --tw-sidebar-text: #94a3b8;
-  --tw-sidebar-active: #1d4ed8;
-  --tw-sidebar-hover: #1e293b;
+  --tw-sidebar-bg: #ffffff;
+  --tw-sidebar-border: #e2e8f0;
+  --tw-sidebar-text: #475569;
+  --tw-sidebar-active: #2563eb;
+  --tw-sidebar-hover: #f1f5f9;
   --tw-body-bg: #f8fafc;
   --tw-card-bg: #ffffff;
   --tw-border: #e2e8f0;
@@ -22,7 +22,7 @@
   --tw-red: #ef4444;
   --tw-purple: #8b5cf6;
   --tw-cyan: #06b6d4;
-  --tw-card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --tw-card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
 }
 
 /* Base Layout Container */
@@ -37,7 +37,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   LEFT SIDEBAR (TowerWatch Navy/Slate Style)
+   LEFT SIDEBAR (Clean Light Corporate Telecom Style)
    -------------------------------------------------------------------------- */
 .telemetry-sidebar {
   width: 240px;
@@ -49,20 +49,21 @@
   justify-content: space-between;
   z-index: 50;
   user-select: none;
+  box-shadow: 1px 0 3px rgba(0, 0, 0, 0.02);
 }
 
 .sidebar-header {
   padding: 20px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid #f1f5f9;
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .sidebar-logo-icon {
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, #1d4ed8, #06b6d4);
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -70,13 +71,13 @@
   color: #fff;
   font-weight: 800;
   font-size: 18px;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
 }
 
 .sidebar-brand-text h2 {
   font-size: 16px;
   font-weight: 700;
-  color: #ffffff;
+  color: #0f172a;
   margin: 0;
   letter-spacing: -0.3px;
 }
@@ -92,7 +93,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #475569;
+  color: #94a3b8;
   padding: 18px 18px 8px 18px;
 }
 
@@ -111,9 +112,9 @@
   border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
-  color: #94a3b8;
+  color: #475569;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
@@ -121,15 +122,16 @@
 }
 
 .sidebar-nav-item:hover {
-  background-color: var(--tw-sidebar-hover);
-  color: #f8fafc;
+  background-color: #f1f5f9;
+  color: #0f172a;
 }
 
 .sidebar-nav-item.active {
-  background-color: var(--tw-sidebar-active);
-  color: #ffffff;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(29, 78, 216, 0.4);
+  background-color: #eff6ff;
+  color: #2563eb;
+  font-weight: 700;
+  border-color: #bfdbfe;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
 }
 
 .sidebar-nav-item .nav-icon {
@@ -153,8 +155,8 @@
 
 .sidebar-footer {
   padding: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background-color: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid #f1f5f9;
+  background-color: #f8fafc;
 }
 
 .sidebar-status-pill {
@@ -505,9 +507,10 @@
   flex: 1;
   min-height: 140px;
   position: relative;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
-  background-color: #0d1527;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
 }
 
 /* Right Panel: Voice Terminal / Structure */
@@ -539,29 +542,29 @@
   margin: 0;
 }
 
-/* 3D Audio Radar / Tower simulation */
-.radar-display-box {
-  height: 180px;
-  background: radial-gradient(circle at center, #1e293b 0%, #0d1527 100%);
-  border-radius: 6px;
-  position: relative;
-  overflow: hidden;
+/* Telemetry Specs Display */
+.terminal-telemetry-specs {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #1e293b;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.radar-telemetry-overlay {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  right: 8px;
+.spec-row {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
-  color: #38bdf8;
-  font-family: "Courier New", Courier, monospace;
+  align-items: center;
+  font-size: 12px;
+  padding: 8px 10px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #64748b;
+}
+
+.spec-row strong {
+  color: #0f172a;
+  font-weight: 600;
+  font-size: 12px;
 }
 
 /* PIN Dial Box */
