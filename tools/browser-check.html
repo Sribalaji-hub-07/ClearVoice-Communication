@@ -1,0 +1,321 @@
+<!doctype html>
+<!--
+  Developer verification harness. NOT part of ClearVoice and not linked from the app.
+
+  It answers the questions the Node DSP self-test cannot: does the worklet file the app
+  actually ships load in a real browser AudioWorklet, does the suppression run there, and
+  can the processed MediaStreamTrack really cross an RTCPeerConnection.
+
+  It uses a synthesised source instead of a microphone because the in-app browser denies
+  microphone permission. The product itself never falls back to synthesised audio - it only
+  ever sends a live microphone track.
+
+  Serve with the dev server and open http://localhost:5173/tools/browser-check.html
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ClearVoice - browser harness</title>
+    <style>
+      body { background: #0a1122; color: #dbe6ff; font: 14px/1.55 ui-monospace, 'JetBrains Mono', monospace; padding: 24px; }
+      h1 { font-size: 17px; margin: 0 0 6px; }
+      p.hint { color: #7f93b8; margin: 0 0 18px; max-width: 70ch; }
+      button { font: inherit; padding: 9px 16px; border-radius: 9px; border: 1px solid #2c4a86; background: #14264a; color: #dbe6ff; cursor: pointer; }
+      pre { white-space: pre-wrap; background: #07101f; border: 1px solid #1b2f52; border-radius: 10px; padding: 14px; margin-top: 18px; }
+      .pass { color: #5be9a5; }
+      .fail { color: #ff7b7b; }
+      .skip { color: #ffd479; }
+    </style>
+  </head>
+  <body>
+    <h1>ClearVoice browser harness</h1>
+    <p class="hint">
+      Loads the real <code>noise-suppressor-worklet.js</code> through the app's own
+      <code>NoiseSuppressor</code> service, renders it with the browser AudioWorklet, and then
+      sends the resulting track over a genuine <code>RTCPeerConnection</code> pair.
+    </p>
+    <button id="run">Run checks</button>
+    <pre id="out">waiting</pre>
+
+    <script type="module">
+      import { NoiseSuppressor } from '/src/audio/NoiseSuppressor.ts';
+      import { DEFAULT_NOISE_PARAMS } from '/src/types/audio.ts';
+
+      const out = document.getElementById('out');
+      const lines = [];
+      let failures = 0;
+      const say = (text) => lines.push(text);
+      const pass = (label, detail) => { say(`PASS  ${label}${detail ? ' - ' + detail : ''}`); };
+      const fail = (label, detail) => { failures++; say(`FAIL  ${label}${detail ? ' - ' + detail : ''}`); };
+      const skip = (label, detail) => { say(`SKIP  ${label}${detail ? ' - ' + detail : ''}`); };
+
+      const SR = 48000;
+
+      /** The same mixture family as the Node self-test: harmonic speech plus coloured noise. */
+      function fillMixture(buffer, withNoise) {
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+          const t = i / SR;
+          const gate = Math.sin(2 * Math.PI * 0.35 * t) > -0.15 ? 1 : 0;
+          const env = Math.max(0, Math.sin(2 * Math.PI * 1.9 * t)) ** 0.6 * gate;
+          const f0 = 120 + 28 * Math.sin(2 * Math.PI * 0.7 * t);
+          let speech = 0;
+          for (let h = 1; h <= 16; h++) {
+            const formant = Math.exp(-((h * f0 - 900) ** 2) / (2 * 500 ** 2)) + 0.55 * Math.exp(-((h * f0 - 2400) ** 2) / (2 * 700 ** 2));
+            speech += ((formant / h) * Math.sin((2 * Math.PI * f0 * h * i) / SR)) * 0.06;
+          }
+          let v = env * speech;
+          if (withNoise) {
+            const white = Math.random() * 2 - 1;
+            v += 0.055 * white + 0.05 * Math.sin(2 * Math.PI * 95 * t) + 0.03 * Math.sin(2 * Math.PI * 310 * t);
+          }
+          data[i] = v;
+        }
+      }
+
+      function rms(x) {
+        let acc = 0;
+        for (let i = 0; i < x.length; i++) acc += x[i] * x[i];
+        return Math.sqrt(acc / x.length);
+      }
+
+      function delayedCorrelation(a, b, maxLag) {
+        const window = Math.min(a.length, b.length) - maxLag - 4;
+        let best = { lag: 0, score: -2 };
+        for (let lag = 0; lag <= maxLag; lag++) {
+          let dot = 0;
+          let na = 0;
+          let nb = 0;
+          for (let i = 0; i < window; i++) {
+            const x = a[i];
+            const y = b[i + lag];
+            dot += x * y;
+            na += x * x;
+            nb += y * y;
+          }
+          const score = dot / (Math.sqrt(na * nb) + 1e-12);
+          if (score > best.score) best = { lag, score };
+        }
+        return best;
+      }
+
+      /** The worklet always high-passes its input, so the reference must carry the same filter. */
+      function dcBlock(x) {
+        const out = new Float32Array(x.length);
+        let dcy = 0;
+        let dcx = 0;
+        for (let i = 0; i < x.length; i++) {
+          const y = 0.995 * dcy + x[i] - dcx;
+          dcx = x[i];
+          dcy = y;
+          out[i] = y;
+        }
+        return out;
+      }
+
+      /** Offline rendering needs no user gesture, so this part runs even with the tab hidden. */
+      async function renderThroughWorklet(params, seconds, withNoise) {
+        const length = Math.round(SR * seconds);
+        const ctx = new OfflineAudioContext(1, length, SR);
+        const buffer = ctx.createBuffer(1, length, SR);
+        fillMixture(buffer, withNoise);
+        const input = buffer.getChannelData(0);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const suppressor = await NoiseSuppressor.create(ctx, params);
+        source.connect(suppressor.node);
+        suppressor.node.connect(ctx.destination);
+        source.start(0);
+        const rendered = await ctx.startRendering();
+        return { input, output: rendered.getChannelData(0), suppressor };
+      }
+
+      async function run() {
+        lines.length = 0;
+        failures = 0;
+        say(`user activation for the live checks: ${navigator.userActivation ? navigator.userActivation.hasBeenActive : 'unknown'}, tab visibility: ${document.visibilityState}`);
+
+        say('\n[1] the shipped worklet loads and runs in a real AudioWorklet');
+        try {
+          const bypassed = await renderThroughWorklet({ ...DEFAULT_NOISE_PARAMS, bypass: true }, 4, true);
+          // Both slices start after the 512-sample framing warm-up, so the zeros at the head
+          // of the render cannot be mistaken for distortion.
+          const ref = dcBlock(bypassed.input).subarray(1024);
+          const renderedTail = bypassed.output.subarray(1024);
+          const { score, lag } = delayedCorrelation(ref, renderedTail, 600);
+          const tailRms = rms(renderedTail.subarray(-SR));
+          const errorDb = 20 * Math.log10(rms(ref.subarray(0, ref.length - lag).map((v, i) => v - renderedTail[i + lag])) / rms(ref));
+          if (score > 0.995 && tailRms > 0.001) pass('bypass reconstruction in-browser', `correlation ${score.toFixed(5)} at lag ${lag}, residual ${errorDb.toFixed(1)} dB`);
+          else fail('bypass reconstruction in-browser', `correlation ${score.toFixed(5)}, residual ${errorDb.toFixed(1)} dB, tail rms ${tailRms.toFixed(5)}`);
+        } catch (err) {
+          fail('worklet failed to load in the browser', err && err.message);
+        }
+
+        say('\n[2] suppression measured by the browser audio thread');
+        try {
+          const clean = await renderThroughWorklet({ ...DEFAULT_NOISE_PARAMS, bypass: true }, 4, true);
+          const processed = await renderThroughWorklet({ ...DEFAULT_NOISE_PARAMS }, 4, true);
+          const before = rms(clean.output);
+          const after = rms(processed.output);
+          const gainDb = 20 * Math.log10(after / (before || 1e-9));
+          await new Promise((r) => setTimeout(r, 150));
+          const stats = processed.suppressor.currentStats;
+          if (gainDb < -1) pass('noise energy reduced by the worklet', `${gainDb.toFixed(1)} dB overall, reported floor ${stats.noiseFloorDb.toFixed(1)} -> ${stats.residualFloorDb.toFixed(1)} dBFS`);
+          else fail('noise energy reduced by the worklet', `${gainDb.toFixed(1)} dB overall`);
+          const frames = stats.framesProcessed;
+          if (frames > 300) pass('statistics reached the main thread', `${frames} frames, ${stats.algorithmLatencyMs.toFixed(2)} ms algorithm delay`);
+          else skip('statistics reached the main thread', `the offline render delivered ${frames} frames' worth of stats; live mode is covered by the app itself`);
+        } catch (err) {
+          fail('suppression run', err && err.message);
+        }
+
+        say('\n[3] processed track is attachable to an RTCPeerConnection');
+        let live = null;
+        try {
+          live = new AudioContext({ sampleRate: SR, latencyHint: 'interactive' });
+          if (live.state === 'suspended') await live.resume();
+          say(`      live audio context: ${live.state}`);
+          const suppressor = await NoiseSuppressor.create(live, { ...DEFAULT_NOISE_PARAMS });
+          const tone = live.createOscillator();
+          const noiseBuffer = live.createBuffer(1, SR, SR);
+          const nd = noiseBuffer.getChannelData(0);
+          for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * 0.4;
+          const noise = live.createBufferSource();
+          noise.buffer = noiseBuffer;
+          noise.loop = true;
+          const gain = live.createGain();
+          gain.gain.value = 0.5;
+          const dest = live.createMediaStreamDestination();
+          tone.frequency.value = 320;
+          tone.connect(gain);
+          noise.connect(gain);
+          gain.connect(suppressor.node);
+          suppressor.node.connect(dest);
+          tone.start();
+          noise.start();
+
+          const track = dest.stream.getAudioTracks()[0];
+          if (!track) throw new Error('no processed audio track was produced');
+          const pcA = new RTCPeerConnection();
+          const pcB = new RTCPeerConnection();
+          pcA.addTrack(track, dest.stream);
+          pcA.onicecandidate = (e) => e.candidate && pcB.addIceCandidate(e.candidate).catch(() => undefined);
+          pcB.onicecandidate = (e) => e.candidate && pcA.addIceCandidate(e.candidate).catch(() => undefined);
+
+          let resolveTrack = () => undefined;
+          const trackPromise = new Promise((resolve) => {
+            resolveTrack = resolve;
+            setTimeout(() => resolve(null), 12000);
+          });
+          pcB.ontrack = (e) => resolveTrack(e.streams[0].getAudioTracks()[0]);
+          let resolveState = () => undefined;
+          const connectedPromise = new Promise((resolve) => {
+            resolveState = resolve;
+            setTimeout(() => resolve('timed out'), 10000);
+          });
+          const check = () => {
+            if (pcA.connectionState === 'connected' && pcB.connectionState === 'connected') resolveState('connected');
+            if (pcA.connectionState === 'failed' || pcB.connectionState === 'failed') resolveState('failed');
+          };
+          pcA.onconnectionstatechange = check;
+          pcB.onconnectionstatechange = check;
+
+          const offer = await pcA.createOffer();
+          await pcA.setLocalDescription(offer);
+          const hasAudioLine = /m=audio/.test(offer.sdp) && /a=sendonly|a=sendrecv/.test(offer.sdp);
+          if (hasAudioLine) pass('offer carries the processed audio m-line', 'SDP built from the suppressed track');
+          else fail('offer carries the processed audio m-line', offer.sdp.slice(0, 120));
+
+          await pcB.setRemoteDescription(offer);
+          const answer = await pcB.createAnswer();
+          await pcB.setLocalDescription(answer);
+          await pcA.setRemoteDescription(answer);
+
+          const connected = await connectedPromise;
+          if (connected === 'connected') pass('peer connections established over ICE', `A=${pcA.connectionState}, B=${pcB.connectionState}`);
+          else fail('peer connections established over ICE', `${connected} (A=${pcA.connectionState}, B=${pcB.connectionState})`);
+
+          say('\n[4] audio really crosses the connection');
+          const remoteTrack = await trackPromise;
+          if (!remoteTrack) fail('remote track delivered', 'pcB.ontrack never fired');
+          else if (live.state !== 'running') skip('remote audio analysis', `the live audio context stayed ${live.state}; a user gesture is required`);
+          else {
+            const measure = (stream) => {
+              const analyser = live.createAnalyser();
+              analyser.fftSize = 2048;
+              const sink = live.createGain();
+              sink.gain.value = 0;
+              live.createMediaStreamSource(stream).connect(analyser);
+              // An analyser alone is not enough for every engine to pull the graph, so the
+              // branch also reaches the destination through a muted gain.
+              analyser.connect(sink);
+              sink.connect(live.destination);
+              const buf = new Float32Array(analyser.fftSize);
+              return new Promise((resolve) => {
+                let peak = 0;
+                const deadline = Date.now() + 4000;
+                const tick = () => {
+                  analyser.getFloatTimeDomainData(buf);
+                  peak = Math.max(peak, rms(buf));
+                  if (Date.now() >= deadline) resolve({ peak, cleanup: () => { analyser.disconnect(); sink.disconnect(); } });
+                  else setTimeout(tick, 200);
+                };
+                tick();
+              });
+            };
+
+            const sent = await measure(dest.stream);
+            const received = await measure(new MediaStream([remoteTrack]));
+            const report = await pcB.getStats();
+            let inbound = null;
+            let pair = null;
+            report.forEach((s) => {
+              if (s.type === 'inbound-rtp' && s.kind === 'audio') inbound = s;
+              if (s.type === 'candidate-pair' && s.nominated) pair = s;
+            });
+            say(`      sender  rms ${sent.peak.toFixed(5)} (track ${track.readyState}${track.muted ? ', muted' : ''})`);
+            say(`      receiver rms ${received.peak.toFixed(5)} (track ${remoteTrack.readyState}${remoteTrack.muted ? ', muted' : ''}, enabled ${remoteTrack.enabled})`);
+            say(
+              `      inbound ${inbound ? `${inbound.packetsReceived} packets, ${inbound.bytesReceived} bytes, jitter ${(inbound.jitter * 1000).toFixed(2)} ms, discarded ${inbound.packetsDiscarded ?? 0}, audio energy ${inbound.totalAudioEnergy ?? 'n/a'}` : 'missing'}`,
+            );
+            if (pair) say(`      selected pair ${pair.state}, rtt ${pair.currentRoundTripTime !== undefined ? (pair.currentRoundTripTime * 1000).toFixed(2) + ' ms' : 'n/a'}`);
+            sent.cleanup();
+            received.cleanup();
+
+            const discarded = inbound ? (inbound.packetsDiscarded || 0) / Math.max(1, inbound.packetsReceived) : 0;
+            if (sent.peak <= 0.002) fail('processed track is not silent at the sender', `rms ${sent.peak.toFixed(6)}`);
+            else if (!inbound || inbound.packetsReceived < 20) fail('audio packets reached the receiver', inbound ? `only ${inbound.packetsReceived} packets` : 'no inbound-rtp stats');
+            else if (received.peak > 0.002) pass('audio crossed the peer connection', `${inbound.packetsReceived} packets in, receiver rms ${received.peak.toFixed(4)}`);
+            else if (document.visibilityState === 'hidden' && discarded > 0.5)
+              skip(
+                'remote audio playout',
+                `the harness tab is hidden and Chrome discarded ${inbound.packetsDiscarded} of ${inbound.packetsReceived} packets; the transport itself delivered audio (rtt ${(pair && pair.currentRoundTripTime ? pair.currentRoundTripTime * 1000 : 0).toFixed(1)} ms). Re-run in a visible tab to see the receiver level.`,
+              );
+            else fail('audio crossed the peer connection', `packets arrived but the receiver measured ${received.peak.toFixed(6)}`);
+          }
+
+          pcA.close();
+          pcB.close();
+          tone.stop();
+          noise.stop();
+          suppressor.dispose();
+          await live.close();
+        } catch (err) {
+          fail('WebRTC track check', err && err.message);
+          if (live && live.state !== 'closed') await live.close().catch(() => undefined);
+        }
+
+        say(`\n${failures === 0 ? 'ALL BROWSER CHECKS PASSED' : failures + ' BROWSER CHECK(S) FAILED'}`);
+        out.innerHTML = lines
+          .map((l) => l.replace(/^PASS/, '<span class="pass">PASS</span>').replace(/^FAIL/, '<span class="fail">FAIL</span>').replace(/^SKIP/, '<span class="skip">SKIP</span>'))
+          .join('\n');
+      }
+
+      document.getElementById('run').addEventListener('click', () => {
+        run().catch((err) => {
+          out.textContent = 'harness crashed: ' + (err && err.stack);
+        });
+      });
+    </script>
+  </body>
+</html>

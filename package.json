@@ -1,43 +1,29 @@
 {
   "name": "clearvoice",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "Real-Time Adaptive Noise Suppression for Enhanced IP Voice Communication",
   "scripts": {
     "dev": "vite",
-    "dev:server": "tsx server/server.ts",
-    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev -- --host\"",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "start": "tsx server/server.ts",
-    "lint": "eslint . --ext ts,tsx"
-  },
-  "engines": {
-    "node": "20.x"
+    "typecheck": "tsc --noEmit",
+    "test:dsp": "node tools/dsp-selftest.mjs",
+    "test:signaling": "node tools/signaling-test.mjs",
+    "test": "node tools/dsp-selftest.mjs && node tools/signaling-test.mjs"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.0",
-    "@capacitor/cli": "^8.5.0",
-    "@capacitor/core": "^8.5.0",
-    "@emailjs/browser": "^4.4.1",
-    "express": "^5.2.1",
-    "peerjs": "^1.5.4",
+    "lucide-react": "^0.451.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
-    "tsx": "^4.23.15"
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/node": "^26.6.2",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "concurrently": "^10.0.5",
-    "isomorphic-git": "^1.42.2",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.0",
-    "vite-plugin-pwa": "^1.3.0"
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
   }
 }

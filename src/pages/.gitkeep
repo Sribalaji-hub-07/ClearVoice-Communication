@@ -1,2 +1,0 @@
-Reserved for future multi-page/routing growth (e.g. a Settings or History page).
-The MVP is a single-page dashboard (see src/App.tsx).

@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">ClearVoice</string>
-    <string name="title_activity_main">ClearVoice</string>
-    <string name="package_name">com.clearvoice.app</string>
-    <string name="custom_url_scheme">com.clearvoice.app</string>
-</resources>
