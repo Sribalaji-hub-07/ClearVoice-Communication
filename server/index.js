@@ -36,6 +36,26 @@ app.use((req, res, next) => {
   next();
 });
 
+// Self-destroying service worker endpoint to decommission any legacy PWA
+app.get(['/sw.js', '/registerSW.js', '/workbox-*.js'], (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.send(`
+    self.addEventListener('install', () => self.skipWaiting());
+    self.addEventListener('activate', (e) => {
+      e.waitUntil(
+        caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+          .then(() => self.registration.unregister())
+          .then(() => self.clients.claim())
+          .then(() => self.clients.matchAll({ type: 'window' }))
+          .then((clients) => {
+            clients.forEach((c) => c.navigate(c.url));
+          })
+      );
+    });
+  `);
+});
+
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'clearvoice-signaling', uptimeSec: Math.round(process.uptime()) });
 });
@@ -46,22 +66,25 @@ app.get('/config/ice', (_req, res) => {
   res.json({ ...status, urls: getIceServers().map((s) => (Array.isArray(s.urls) ? s.urls : s.urls)) });
 });
 
-const API_PATH = /^\/(socket\.io|health|config\/ice)(\/|$)/;
+const API_PATH = /^\/(socket\.io|health|config\/ice|sw\.js|registerSW\.js)(\/|$)/;
 
 if (servingStatic) {
   app.use(
     express.static(staticDir, {
       index: false,
       setHeaders: (res, filePath) => {
-        res.setHeader('Cache-Control', filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=3600');
+        res.setHeader('Cache-Control', filePath.endsWith('index.html') ? 'no-cache, no-store, must-revalidate' : 'public, max-age=3600');
       },
     }),
   );
   // The UI is a single page with in-app tabs, so any other GET returns the shell.
-  app.get('/', (_req, res) => res.sendFile(path.join(staticDir, 'index.html')));
+  app.get('/', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(staticDir, 'index.html'));
+  });
   app.use((req, res, next) => {
     if (req.method !== 'GET' || API_PATH.test(req.path)) return next();
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(staticDir, 'index.html'), (err) => (err ? next(err) : undefined));
   });
 }

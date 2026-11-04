@@ -12,6 +12,19 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Unregister any legacy PWA service workers and purge stale caches
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          for (var r of regs) r.unregister();
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          for (var n of names) caches.delete(n);
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
