@@ -83,6 +83,42 @@ before you build the frontend.
 6. Only `VITE_`-prefixed variables ever reach the browser. Never put a TURN secret in one of them -
    the socket hands the client its ICE configuration, which is why the credential stays server-side.
 
+## 3b. Alternative host: Render (both halves)
+
+Render can host the static site and the Node service from the same repository. `render.yaml` at the
+repository root is a Render Blueprint that already declares both, so **New → Blueprint** and pick
+this repo is the short path. The manual equivalent:
+
+| Field | `clearvoice-web` (Static) | `clearvoice-signaling` (Web Service) |
+| --- | --- | --- |
+| Type | **Static Site** | **Web Service** |
+| Root directory | repository root | **`server`** |
+| Build command | `npm ci && npm run build` | `npm install` |
+| Start command | — (static) | `npm start` |
+| Publish path | `dist` | — |
+| Health check path | — | `/health` |
+| Environment | `VITE_SIGNALING_URL=https://clearvoice-signaling.onrender.com` | `CORS_ORIGIN=https://clearvoice-web.onrender.com`, `STUN_URL`, optional TURN trio |
+
+Two traps that produce a failed deploy rather than a broken feature:
+
+- **Never deploy the repository root as a Web Service.** `package.json` at the root has no `start`
+  script and nothing that binds `$PORT` - Render's default Node start command is `npm start`, so the
+  build succeeds and the service then dies with `Missing script: "start"`. The frontend is a static
+  site; only `server/` is a runnable process.
+- **`VITE_SIGNALING_URL` is compiled in.** On Render, environment variables for a static site are
+  available at build time, so change it and trigger a fresh build; a restart keeps the old bundle.
+
+After both are live:
+
+```powershell
+Invoke-RestMethod https://clearvoice-signaling.onrender.com/health
+Invoke-RestMethod https://clearvoice-signaling.onrender.com/config/ice
+```
+
+The free tier sleeps an idle web service, so the first socket connection after a while can take a
+few seconds and the UI will show its retry notice; that is the cold start, not a defect. Signaling
+state lives in memory, so a restart (including a redeploy) drops active calls - by design.
+
 ## 4. TURN (optional, but required for symmetric NAT)
 
 STUN alone works when at least one side can be reached directly or reflexively. Two peers behind

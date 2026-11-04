@@ -1,0 +1,52 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+#
+# Two services, because this repository has two deliverables with different lifecycles:
+#   clearvoice-web         static SPA (Vite build output in dist/)
+#   clearvoice-signaling   Node process that relays call signaling only, never audio
+#
+# Render names a service's free hostname after the service name, so the two URLs below refer to
+# each other. If Render assigns a different hostname (name collision), update both values.
+#
+# Do NOT point the whole repository at one "Web Service": the root package.json has no start
+# script and nothing that listens on $PORT, so Render's default `npm start` fails with
+# "Missing script: start" and the deploy never reaches Running.
+
+services:
+  - type: web
+    name: clearvoice-signaling
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # The exact scheme + origin of the static site, comma-separate if you add more.
+      - key: CORS_ORIGIN
+        value: https://clearvoice-web.onrender.com
+      - key: STUN_URL
+        value: stun:stun.l.google.com:19302
+      - key: STUN_URL_2
+        value: ""
+      # Set these three in the Render dashboard (they are credentials, not file contents).
+      # sync: false keeps Render from overwriting what you typed in the Variables tab.
+      - key: TURN_URL
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false
+
+  - type: web
+    name: clearvoice-web
+    runtime: static
+    rootDir: .
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      # Baked into the bundle at build time - changing it requires a rebuild, not just a restart.
+      - key: VITE_SIGNALING_URL
+        value: https://clearvoice-signaling.onrender.com

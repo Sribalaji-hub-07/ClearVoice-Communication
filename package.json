@@ -8,6 +8,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "start": "node server/index.js",
+    "install:server": "npm --prefix server ci",
     "typecheck": "tsc --noEmit",
     "test:dsp": "node tools/dsp-selftest.mjs",
     "test:signaling": "node tools/signaling-test.mjs",

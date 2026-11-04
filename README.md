@@ -82,6 +82,7 @@ clearvoice/
 │   └── .env.example
 ├── tools/                         dsp-selftest.mjs, signaling-test.mjs,
 │                                  browser-check.html, mock-peer.mjs
+├── render.yaml                    Render Blueprint (static site + signaling service)
 └── docs/                          architecture.md, algorithm.md, testing.md, deployment.md
 ```
 
@@ -197,7 +198,9 @@ Three independent layers, all described with their measured output in
 
 Frontend → Vercel, backend → Railway, `VITE_SIGNALING_URL` and `CORS_ORIGIN` pointing at each
 other, HTTPS on both. The full procedure with the exact dashboard fields is in
-[docs/deployment.md](docs/deployment.md).
+[docs/deployment.md](docs/deployment.md), which also covers **Render** for both halves at once
+(`render.yaml` is a ready Render Blueprint: static site from `dist/` plus a Node service rooted at
+`server/`).
 
 ## Security posture
 
