@@ -83,11 +83,37 @@ before you build the frontend.
 6. Only `VITE_`-prefixed variables ever reach the browser. Never put a TURN secret in one of them -
    the socket hands the client its ICE configuration, which is why the credential stays server-side.
 
-## 3b. Alternative host: Render (both halves)
+## 3b. Alternative host: Render
 
-Render can host the static site and the Node service from the same repository. `render.yaml` at the
-repository root is a Render Blueprint that already declares both, so **New → Blueprint** and pick
-this repo is the short path. The manual equivalent:
+### One Web Service (recommended)
+
+`server/index.js` serves `dist/` itself, so a single free Web Service carries the SPA and
+`/socket.io` on the same origin:
+
+| Field | Value |
+| --- | --- |
+| Type | **Web Service** (Node) |
+| Root directory | repository root |
+| Build command | `npm install && npm run build` |
+| Start command | `npm start` |
+| Health check path | `/health` |
+| Environment | none required. Optionally `NODE_VERSION` = `22`; `CORS_ORIGIN`, `STUN_URL` and the TURN trio only if you set them |
+
+No `VITE_SIGNALING_URL`: with the frontend and the socket on one origin the client uses the page
+origin by default. The server logs which mode it started in, so a missing bundle is visible in the
+deploy log rather than being a blank page:
+
+```
+[clearvoice] signaling server listening on :10000
+[clearvoice] serving the built frontend from /opt/render/project/src/dist
+```
+
+If it instead says `no frontend in ... - signaling only`, the build step did not produce `dist/`.
+
+### Two services (static site + Node service)
+
+`render.yaml` at the repository root is a Render Blueprint that declares both, so **New → Blueprint**
+and pick this repo is the short path. The manual equivalent:
 
 | Field | `clearvoice-web` (Static) | `clearvoice-signaling` (Web Service) |
 | --- | --- | --- |
@@ -101,19 +127,23 @@ this repo is the short path. The manual equivalent:
 
 Two traps that produce a failed deploy rather than a broken feature:
 
-- **Never deploy the repository root as a Web Service.** `package.json` at the root has no `start`
-  script and nothing that binds `$PORT` - Render's default Node start command is `npm start`, so the
-  build succeeds and the service then dies with `Missing script: "start"`. The frontend is a static
-  site; only `server/` is a runnable process.
 - **`VITE_SIGNALING_URL` is compiled in.** On Render, environment variables for a static site are
   available at build time, so change it and trigger a fresh build; a restart keeps the old bundle.
+- **The Node service needs the `server` root directory.** Left at the repository root it still starts
+  (the root `package.json` has a `start` script and binds `$PORT`), but it then runs a second,
+  duplicate signaling process while the static site points elsewhere - keep one service, or root the
+  Node service at `server`.
 
-After both are live:
+After the service is live (substitute your own URL for the two-service layout):
 
 ```powershell
-Invoke-RestMethod https://clearvoice-signaling.onrender.com/health
-Invoke-RestMethod https://clearvoice-signaling.onrender.com/config/ice
+Invoke-RestMethod https://clearvoice.onrender.com/health
+Invoke-RestMethod https://clearvoice.onrender.com/config/ice
 ```
+
+`/health` answering proves the process survived start-up; `/` returning the app HTML proves the
+static half is wired. For the two-service layout use `clearvoice-signaling` for both of these and
+open `clearvoice-web` in the browser instead.
 
 The free tier sleeps an idle web service, so the first socket connection after a while can take a
 few seconds and the UI will show its retry notice; that is the cold start, not a defect. Signaling
