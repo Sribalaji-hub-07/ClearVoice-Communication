@@ -77,10 +77,18 @@ export class CallPeer {
 
   private async negotiate(): Promise<void> {
     if (this.closed || this.negotiating) return;
+    // Adding the track fires negotiationneeded on both sides. At call setup only the caller may
+    // turn that into an offer; a callee that offers before it has a remote description collides
+    // with the caller's offer and neither side ever reaches connected. A callee-initiated
+    // negotiation after that point is an ICE restart, which is legitimate.
+    if (this.role === 'callee' && !this.remoteDescriptionSet) return;
     this.negotiating = true;
     try {
       const offer = await this.pc.createOffer();
-      if (this.pc.signalingState === 'stable') await this.pc.setLocalDescription(offer);
+      // createOffer leaves the signaling state alone, so anything other than stable means a
+      // remote offer landed while this one was being built and this SDP is already stale.
+      if (this.pc.signalingState !== 'stable') return;
+      await this.pc.setLocalDescription(offer);
       this.handlers.onLocalSdp('offer', offer.sdp ?? '');
     } catch (err) {
       this.handlers.onFailure(`Could not create the offer: ${err instanceof Error ? err.message : String(err)}`);
@@ -92,6 +100,12 @@ export class CallPeer {
   async handleOffer(sdp: string): Promise<void> {
     if (this.closed) return;
     try {
+      if (this.negotiating || this.pc.signalingState !== 'stable') {
+        // Glare. The caller keeps its own outstanding offer and drops the peer's; the callee
+        // discards its offer by rolling back and answers instead, so one exchange survives.
+        if (this.role === 'caller') return;
+        await this.pc.setLocalDescription({ type: 'rollback' });
+      }
       await this.pc.setRemoteDescription({ type: 'offer', sdp });
       this.remoteDescriptionSet = true;
       await this.drainIce();
@@ -105,6 +119,10 @@ export class CallPeer {
 
   async handleAnswer(sdp: string): Promise<void> {
     if (this.closed) return;
+    // An answer only means something while our own offer is outstanding. Anything else is the
+    // reply to an offer that glare already discarded, and applying it throws
+    // "Called in wrong state: stable" - which is the failure the UI was reporting.
+    if (this.pc.signalingState !== 'have-local-offer') return;
     try {
       await this.pc.setRemoteDescription({ type: 'answer', sdp });
       this.remoteDescriptionSet = true;
