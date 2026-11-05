@@ -82,6 +82,7 @@ clearvoice/
 │   └── .env.example
 ├── tools/                         dsp-selftest.mjs, signaling-test.mjs,
 │                                  browser-check.html, mock-peer.mjs
+├── desktop/                       main.cjs (Electron shell), package-exe.mjs
 ├── render.yaml                    Render Blueprint (static site + signaling service)
 └── docs/                          architecture.md, algorithm.md, testing.md, deployment.md
 ```
@@ -133,6 +134,34 @@ interfaces) and dial the ID shown in the first one.
 > `http://<LAN-IP>` origin as a secure origin in the browser. The single-device loopback test does
 > not have this restriction.
 
+## Windows desktop app (.exe)
+
+`desktop/main.cjs` is an Electron shell. It starts the same Express + Socket.IO server this
+repository runs on Render, waits for `/health`, then opens a Chromium window on
+`http://127.0.0.1:<port>`. The web app is untouched - same Web Audio graph, same AudioWorklet, same
+WebRTC - so the microphone is still only requested after you press **Start processing**.
+
+```powershell
+npm install              # also downloads the Electron runtime (~360 MB, one time)
+npm run desktop          # run from source
+npm run package:exe      # build, then release\clearvoice-win32-x64\ClearVoice.exe
+```
+
+Double-clicking `ClearVoice.exe` is enough to run it: the server, the built frontend and the
+runtime all live in that folder, so `release\clearvoice-win32-x64` can be copied to another 64-bit
+Windows 10/11 machine with nothing else installed. It takes port 3001, or the next free one up to
+3025 if something else already holds it, and the window only opens once `/health` answers.
+
+| Situation | What to do |
+| --- | --- |
+| Two desktop apps on one LAN | Each copy runs its own signaling server, so they cannot see each other. Start one shared server (`npm start` on one machine) and build with `$env:VITE_SIGNALING_URL = "http://<that-machine>:3001"` before `npm run package:exe`. |
+| Two desktop apps across the internet | Same as above, but pointed at your Render URL over HTTPS. |
+| Calls fail behind symmetric NAT | Set `TURN_URL`, `TURN_USERNAME`, `TURN_CREDENTIAL` on the server the clients sign through. |
+
+The build is not code-signed, so SmartScreen warns on the first run (**More info → Run anyway**),
+and a non-localhost `VITE_SIGNALING_URL` has to be HTTPS or the browser will refuse the microphone
+outright.
+
 Useful scripts:
 
 | Command | What it does |
@@ -144,6 +173,8 @@ Useful scripts:
 | `npm test` | both automated suites below |
 | `npm run test:dsp` | headless run of the real worklet through Node |
 | `npm run test:signaling` | spins up the server and drives it with real sockets |
+| `npm run desktop` | run the Electron app from source |
+| `npm run package:exe` | build, then emit `release\clearvoice-win32-x64\ClearVoice.exe` |
 
 ## Configuration
 

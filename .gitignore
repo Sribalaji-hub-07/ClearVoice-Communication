@@ -11,3 +11,4 @@ server/node_modules
 *.log
 .vite
 visualization-output
+release

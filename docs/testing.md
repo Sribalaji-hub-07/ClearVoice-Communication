@@ -202,11 +202,50 @@ Build and bundle:
 
 ```
 tsc --noEmit  → no errors
-vite build    → 1628 modules, 1.55 s
-dist/assets/index-kThno3ZB.js              277.80 kB │ gzip  83.87 kB
-dist/assets/noise-suppressor-worklet-…js    16.75 kB
+vite build    → 1628 modules, 1.90 s
+dist/index.html                              1.41 kB │ gzip   0.67 kB
+dist/assets/index-gJT_kd1D.js              278.05 kB │ gzip  83.92 kB
+dist/assets/noise-suppressor-worklet-…js    16.89 kB
 dist/assets/index-eO_4Ht9U.css              10.54 kB │ gzip   3.03 kB
 ```
+
+### 5b. Desktop (Electron) build
+
+`npm run package:exe` was run and then checked against the packaged binary, not the source tree.
+
+```
+release/clearvoice-win32-x64/ClearVoice.exe   249 831 936 B  (the Electron 45.2.3 runtime)
+release/clearvoice-win32-x64/                   408.2 MB over 5858 files (the whole app folder)
+resources/app/                                README.md, desktop/main.cjs, dist/, node_modules/, package.json, server/
+```
+
+The packaging pipeline drops `src/`, `docs/`, `tools/`, `tsconfig.json`, `vite.config.ts`,
+`render.yaml`, `package-lock.json`, `.git`, `node_modules/.bin` and every devDependency - Electron
+itself and Vite included - while keeping `express`, `cors` and `socket.io`.
+
+`ClearVoice.exe` launched, window shown, then closed:
+
+| Probe | Result |
+| --- | --- |
+| start-up log | `signaling server listening on :3001`, `serving the built frontend from …\resources\app\dist` |
+| `/health` | `{"ok":true,"service":"clearvoice-signaling","uptimeSec":11}` |
+| `/` | 200, `text/html`, 1406 B |
+| `/assets/noise-suppressor-worklet-CVNn9BgV.js` | 200, 16 892 B - the AudioWorklet module is reachable, so processing can start |
+| renderer console | no application messages and no errors from the packaged build |
+
+Two defects only the windowed path exposed, both fixed: `setWindowOpenHandler` is not a method of
+`BrowserWindow` in Electron 45 (it lives on `webContents`), which aborted start-up after the server
+was already listening; and the first two packaging attempts silently shipped the whole repository
+inside `resources/app`, because `filter` is not a packager option - `ignore` takes a predicate that
+returns true for the paths to drop.
+
+Running from source (`npx electron .`) additionally prints Electron's standard
+`Insecure Content-Security-Policy` warning; the packaged build prints nothing. The app is served from
+`http://127.0.0.1` with no third-party scripts, so the notice is informational here, and no CSP was
+added because a wrong one would break the `blob:` AudioWorklet and the `ws:` socket.
+
+Not verified: microphone capture inside the Electron window (the automated session cannot grant it),
+and a call between two desktop builds on different machines.
 
 ## 6. What has NOT been measured
 

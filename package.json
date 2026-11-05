@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "desktop/main.cjs",
   "description": "Real-Time Adaptive Noise Suppression for Enhanced IP Voice Communication",
   "scripts": {
     "dev": "vite",
@@ -10,6 +11,8 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "install:server": "npm --prefix server ci",
+    "desktop": "electron .",
+    "package:exe": "npm run build && node desktop/package-exe.mjs",
     "typecheck": "tsc --noEmit",
     "test:dsp": "node tools/dsp-selftest.mjs",
     "test:signaling": "node tools/signaling-test.mjs",
@@ -25,9 +28,11 @@
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
+    "electron": "^45.2.3",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   }
